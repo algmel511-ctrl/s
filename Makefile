@@ -1,23 +1,9 @@
-# تحديد البنية المعمارية
 ARCHS = arm64 arm64e
-
-# تحديد الهدف (إصدار الأيفون)
 TARGET = iphone:clang:latest:14.0
-
-# استيراد إعدادات Theos العامة
 include $(THEOS)/makefiles/common.mk
 
-# اسم التويك
 TWEAK_NAME = RavFenShadow
-
-# الملفات المكونة للتويك (تأكد من اسم ملفك، إذا كان Tweak.mm اتركه كما هو)
 RavFenShadow_FILES = Tweak.mm
-
-# تفعيل ARC لتجنب مشاكل الذاكرة
 RavFenShadow_CFLAGS = -fobjc-arc
 
-# إعدادات إضافية لتجنب أخطاء التجميع
-ADDITIONAL_CFLAGS = -Wno-error=deprecated-declarations
-
-# استيراد قواعد بناء التويك
 include $(THEOS_MAKE_PATH)/tweak.mk
