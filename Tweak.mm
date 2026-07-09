@@ -1,6 +1,6 @@
 // ====================================================================
-// RavFen Shadow v6.1 - PUBG Mobile 4.4.0 iOS Tweak
-// تم إصلاح warning: variable 'bone' set but not used
+// RavFen Shadow v6.2 - PUBG Mobile 4.4.0 iOS Tweak
+// تم إصلاح: X معلق، إيموجيات، خط أسود، حجم القائمة
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -57,29 +57,29 @@ static RavConfig gConfig = {0};
 // 🔐 الأوفستات
 // ====================================================================
 static const uint8_t kEncryptedOffsets[] = {
-    0x8D, 0x06, 0x0E, 0xD7, 0x8D, 0x06, 0x0E, 0xD7, // 0: GWorld
-    0xAD, 0xC3, 0xC3, 0xD3, 0xAD, 0xC3, 0xC3, 0xD3, // 1: GNames
-    0x87, 0x87, 0x87, 0x87, 0x00, 0x00, 0x00, 0x00, // 2: PersistentLevel
-    0x7D, 0x7D, 0x7D, 0x7D, 0x00, 0x00, 0x00, 0x00, // 3: ActorsArray
-    0x45, 0x45, 0x45, 0x45, 0x00, 0x00, 0x00, 0x00, // 4: ActorCount
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00, // 5: GameInstance
-    0x9D, 0x9D, 0x9D, 0x9D, 0x00, 0x00, 0x00, 0x00, // 6: LocalPlayers
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00, // 7: PlayerController
-    0x05, 0x05, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00, // 8: AcknowledgedPawn
-    0x6D, 0x6D, 0x6D, 0x6D, 0x00, 0x00, 0x00, 0x00, // 9: RootComponent
-    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00, // 10: RelativeLocation
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00, // 11: PlayerCameraManager
-    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00, // 12: CameraCache
-    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00, // 13: CameraPOV
-    0x0D, 0x0D, 0x0D, 0x0D, 0x00, 0x00, 0x00, 0x00, // 14: ControlRotation
-    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00, // 15: Mesh
-    0x5D, 0x5D, 0x5D, 0x5D, 0x00, 0x00, 0x00, 0x00, // 16: BoneArray
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00, // 17: Health
-    0x75, 0x75, 0x75, 0x75, 0x00, 0x00, 0x00, 0x00, // 18: TeamID
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00, // 19: ActorID
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 20: ComponentToWorld
-    0x25, 0x2A, 0x2D, 0x2A, 0x5A, 0x5A, 0x5A, 0x5A, // 21: ViewMatrixCache
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00, // 22: ViewMatrix
+    0x8D, 0x06, 0x0E, 0xD7, 0x8D, 0x06, 0x0E, 0xD7,
+    0xAD, 0xC3, 0xC3, 0xD3, 0xAD, 0xC3, 0xC3, 0xD3,
+    0x87, 0x87, 0x87, 0x87, 0x00, 0x00, 0x00, 0x00,
+    0x7D, 0x7D, 0x7D, 0x7D, 0x00, 0x00, 0x00, 0x00,
+    0x45, 0x45, 0x45, 0x45, 0x00, 0x00, 0x00, 0x00,
+    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
+    0x9D, 0x9D, 0x9D, 0x9D, 0x00, 0x00, 0x00, 0x00,
+    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
+    0x05, 0x05, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00,
+    0x6D, 0x6D, 0x6D, 0x6D, 0x00, 0x00, 0x00, 0x00,
+    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00,
+    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
+    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00,
+    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00,
+    0x0D, 0x0D, 0x0D, 0x0D, 0x00, 0x00, 0x00, 0x00,
+    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00,
+    0x5D, 0x5D, 0x5D, 0x5D, 0x00, 0x00, 0x00, 0x00,
+    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
+    0x75, 0x75, 0x75, 0x75, 0x00, 0x00, 0x00, 0x00,
+    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x25, 0x2A, 0x2D, 0x2A, 0x5A, 0x5A, 0x5A, 0x5A,
+    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
 };
 
 enum {
@@ -255,7 +255,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
     int32_t localTeam = 0;
     if (localPawn) localTeam = ReadInt(localPawn + OFF(OFF_TM));
     
-    // تحديث ViewMatrix
     uint64_t vmAddr = ReadPtr(base + OFF(OFF_VMC));
     if (vmAddr) {
         ReadMem(vmAddr + OFF(OFF_VM), g_ViewMatrix, 64);
@@ -310,7 +309,7 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 Aimbot - ✅ تم حذف variable 'bone' غير المستخدم
+// 🎯 Aimbot
 // ====================================================================
 static void DoAimbot(void) {
     BOOL enabled = NO;
@@ -344,7 +343,6 @@ static void DoAimbot(void) {
     uint64_t pc    = ReadPtr(lp + OFF(OFF_PC));
     
     float camX = g_LocalX, camY = g_LocalY, camZ = g_LocalZ;
-    // Head shot دائم: ارتفاع الرأس 1.75m
     float targetH = 1.75f;
     float tz = best.z + targetH;
     
@@ -434,12 +432,13 @@ static void *AntiDetachLoop(void *arg) {
         _playerCountLayer = [CATextLayer layer];
         _playerCountLayer.string = @"";
         _playerCountLayer.fontSize = 16;
-        _playerCountLayer.foregroundColor = [[UIColor whiteColor] CGColor];
+        _playerCountLayer.foregroundColor = [[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] CGColor];
         _playerCountLayer.alignmentMode = kCAAlignmentCenter;
         _playerCountLayer.frame = CGRectMake(0, 50, frame.size.width, 30);
-        _playerCountLayer.backgroundColor = [[UIColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.5] CGColor];
-        _playerCountLayer.cornerRadius = 8;
-        _playerCountLayer.masksToBounds = YES;
+        _playerCountLayer.shadowOpacity = 0.5;
+        _playerCountLayer.shadowRadius = 2;
+        // ✅ لا خلفية سوداء
+        _playerCountLayer.backgroundColor = nil;
         [self.layer addSublayer:_playerCountLayer];
     }
     return self;
@@ -470,7 +469,7 @@ static void *AntiDetachLoop(void *arg) {
         [self addSubview:title];
         
         UILabel *sub = [[UILabel alloc] init];
-        sub.text = @"Shadow Edition v6.1";
+        sub.text = @"Shadow Edition";
         sub.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:1.0 alpha:0.8];
         sub.font = [UIFont systemFontOfSize:16];
         sub.textAlignment = NSTextAlignmentCenter;
@@ -541,9 +540,8 @@ static void *AntiDetachLoop(void *arg) {
 // ====================================================================
 @interface RavFloatingButton : UIView {
     UILabel *_label;
-    UIImageView *_dropImage;
-    UIPanGestureRecognizer *_pan;
     UILabel *_ravfenText;
+    UIPanGestureRecognizer *_pan;
     CGFloat _moveAngle;
 }
 @property (nonatomic, copy) void (^onTap)(void);
@@ -555,22 +553,21 @@ static void *AntiDetachLoop(void *arg) {
     self = [super initWithFrame:frame];
     if (self) {
         _moveAngle = 0;
-        self.backgroundColor = [UIColor colorWithRed:0.5 green:0.0 blue:1.0 alpha:0.3];
+        self.backgroundColor = [UIColor colorWithRed:0.5 green:0.0 blue:1.0 alpha:0.35];
         self.layer.cornerRadius = frame.size.width / 2;
-        self.layer.borderWidth = 1.0;
-        self.layer.borderColor = [UIColor colorWithRed:0.7 green:0.3 blue:1.0 alpha:0.5].CGColor;
-        self.clipsToBounds = NO;
+        self.layer.borderWidth = 1.5;
+        self.layer.borderColor = [UIColor colorWithRed:0.7 green:0.3 blue:1.0 alpha:0.6].CGColor;
         self.layer.shadowColor = [UIColor purpleColor].CGColor;
-        self.layer.shadowOpacity = 0.2;
+        self.layer.shadowOpacity = 0.3;
         self.layer.shadowRadius = 6;
         self.layer.shadowOffset = CGSizeMake(0, 2);
         
-        _dropImage = [[UIImageView alloc] init];
-        _dropImage.frame = CGRectMake(6, 5, frame.size.width - 12, frame.size.height - 12);
-        _dropImage.layer.cornerRadius = (frame.size.width - 12) / 2;
-        _dropImage.backgroundColor = [UIColor colorWithRed:0.6 green:0.0 blue:0.0 alpha:0.6];
-        _dropImage.clipsToBounds = YES;
-        [self addSubview:_dropImage];
+        // نقطة الدم
+        UIImageView *drop = [[UIImageView alloc] initWithFrame:CGRectMake(5, 4, frame.size.width - 10, frame.size.height - 10)];
+        drop.layer.cornerRadius = (frame.size.width - 10) / 2;
+        drop.backgroundColor = [UIColor colorWithRed:0.6 green:0.0 blue:0.0 alpha:0.5];
+        drop.clipsToBounds = YES;
+        [self addSubview:drop];
         
         _label = [[UILabel alloc] init];
         _label.text = @"R";
@@ -588,9 +585,10 @@ static void *AntiDetachLoop(void *arg) {
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
         [self addGestureRecognizer:tap];
         
+        // RavFen text يتحرك
         _ravfenText = [[UILabel alloc] init];
         _ravfenText.text = @"RavFen";
-        _ravfenText.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.4];
+        _ravfenText.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.35];
         _ravfenText.font = [UIFont boldSystemFontOfSize:10];
         _ravfenText.textAlignment = NSTextAlignmentCenter;
         [self addSubview:_ravfenText];
@@ -609,30 +607,27 @@ static void *AntiDetachLoop(void *arg) {
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)gesture {
-    UIView *superview = self.superview;
-    if (!superview) return;
-    CGPoint translation = [gesture translationInView:superview];
-    CGPoint center = self.center;
-    center.x += translation.x;
-    center.y += translation.y;
-    CGFloat halfW = self.bounds.size.width / 2 + 30;
-    CGFloat halfH = self.bounds.size.height / 2 + 30;
-    center.x = MAX(halfW, MIN(superview.bounds.size.width - halfW, center.x));
-    center.y = MAX(halfH, MIN(superview.bounds.size.height - halfH, center.y));
+    UIView *v = self.superview;
+    if (!v) return;
+    CGPoint t = [gesture translationInView:v];
+    CGPoint c = self.center;
+    c.x += t.x; c.y += t.y;
+    CGFloat hw = self.bounds.size.width/2 + 30;
+    CGFloat hh = self.bounds.size.height/2 + 30;
+    c.x = MAX(hw, MIN(v.bounds.size.width - hw, c.x));
+    c.y = MAX(hh, MIN(v.bounds.size.height - hh, c.y));
     if (gesture.state == UIGestureRecognizerStateChanged) {
-        self.center = center;
-        [gesture setTranslation:CGPointZero inView:superview];
+        self.center = c;
+        [gesture setTranslation:CGPointZero inView:v];
     }
 }
 
-- (void)handleTap {
-    if (self.onTap) self.onTap();
-}
+- (void)handleTap { if (self.onTap) self.onTap(); }
 
 @end
 
 // ====================================================================
-// 📋 Menu View
+// 📋 Menu View - مصغرة ومحسنة
 // ====================================================================
 @interface RavMenuView : UIView {
     dispatch_queue_t _bgQueue;
@@ -650,15 +645,15 @@ static void *AntiDetachLoop(void *arg) {
     self = [super initWithFrame:frame];
     if (self) {
         _bgQueue = dispatch_queue_create("com.ravfen.bg", DISPATCH_QUEUE_SERIAL);
-        self.backgroundColor = [UIColor colorWithRed:0.05 green:0.05 blue:0.10 alpha:0.96];
-        self.layer.cornerRadius = 20;
-        self.layer.borderWidth = 1.5;
-        self.layer.borderColor = [UIColor colorWithRed:0.6 green:0.2 blue:1.0 alpha:0.8].CGColor;
+        self.backgroundColor = [UIColor colorWithRed:0.06 green:0.06 blue:0.12 alpha:0.95];
+        self.layer.cornerRadius = 16;
+        self.layer.borderWidth = 1.0;
+        self.layer.borderColor = [UIColor colorWithRed:0.5 green:0.2 blue:1.0 alpha:0.7].CGColor;
         self.clipsToBounds = YES;
         self.layer.shadowColor = [UIColor purpleColor].CGColor;
-        self.layer.shadowOpacity = 0.4;
-        self.layer.shadowRadius = 15;
-        self.layer.shadowOffset = CGSizeMake(0, 5);
+        self.layer.shadowOpacity = 0.3;
+        self.layer.shadowRadius = 12;
+        self.layer.shadowOffset = CGSizeMake(0, 4);
         [self buildUI];
         [self startLoop];
     }
@@ -666,134 +661,122 @@ static void *AntiDetachLoop(void *arg) {
 }
 
 - (void)buildUI {
-    CGFloat w = self.bounds.size.width - 30, x = 15, y = 22, mw = self.bounds.size.width;
+    CGFloat w = self.bounds.size.width - 24, y = 12, mw = self.bounds.size.width;
     
-    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, y, w, 32)];
-    titleLabel.text = @"⚡ RavFen Shadow ⚡";
-    titleLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    titleLabel.textAlignment = NSTextAlignmentCenter;
-    titleLabel.shadowColor = [UIColor purpleColor];
-    titleLabel.shadowOffset = CGSizeMake(1, 1);
-    [self addSubview:titleLabel];
+    // Header + X جنب بعض
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(12, y, mw - 50, 24)];
+    title.text = @"RavFen Shadow";
+    title.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
+    title.font = [UIFont boldSystemFontOfSize:18];
+    title.shadowColor = [UIColor purpleColor];
+    title.shadowOffset = CGSizeMake(1, 1);
+    [self addSubview:title];
     
-    UIButton *hideBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    hideBtn.frame = CGRectMake(mw - 42, 12, 32, 32);
-    hideBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.0 blue:0.0 alpha:0.6];
-    hideBtn.layer.cornerRadius = 16;
-    [hideBtn setTitle:@"✕" forState:UIControlStateNormal];
-    [hideBtn setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
-    [hideBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:hideBtn];
+    // ✅ زر X - واضح وجانب العنوان
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(mw - 36, 8, 28, 28);
+    closeBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.0 blue:0.0 alpha:0.7];
+    closeBtn.layer.cornerRadius = 14;
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [closeBtn setTitle:@"X" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [closeBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:closeBtn];
     
-    y += 50;
-    UIView *line1 = [[UIView alloc] initWithFrame:CGRectMake(15, y, w, 1)];
-    line1.backgroundColor = [UIColor colorWithRed:0.4 green:0.2 blue:0.5 alpha:0.7];
-    [self addSubview:line1];
-    y += 10;
+    y += 32;
+    UIView *ln = [[UIView alloc] initWithFrame:CGRectMake(12, y, w, 0.5)];
+    ln.backgroundColor = [UIColor colorWithRed:0.4 green:0.2 blue:0.6 alpha:0.6];
+    [self addSubview:ln];
+    y += 8;
     
-    UILabel *secAim = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
-    secAim.text = @"🎯 Aimbot";
-    secAim.textColor = [UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0];
-    secAim.font = [UIFont boldSystemFontOfSize:16];
-    [self addSubview:secAim];
+    // Aimbot
+    UILabel *sa = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 20)];
+    sa.text = @"Aimbot"; sa.textColor = [UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0];
+    sa.font = [UIFont boldSystemFontOfSize:14]; [self addSubview:sa];
     
-    _aimbotSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 70, y, 50, 22)];
+    _aimbotSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-2, 50, 20)];
     _aimbotSwitch.onTintColor = [UIColor orangeColor];
     [_aimbotSwitch addTarget:self action:@selector(toggleAimbot) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_aimbotSwitch];
-    y += 28;
+    y += 24;
     
-    UILabel *spLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 130, 16)];
-    spLbl.text = @"Speed (1-150):";
-    spLbl.textColor = [UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0];
-    spLbl.font = [UIFont systemFontOfSize:12];
-    [self addSubview:spLbl];
+    UILabel *sl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 14)];
+    sl.text = @"Speed:"; sl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
+    sl.font = [UIFont systemFontOfSize:11]; [self addSubview:sl];
     
-    _speedValLabel = [[UILabel alloc] initWithFrame:CGRectMake(w-55, y, 50, 16)];
-    _speedValLabel.text = @"120";
-    _speedValLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    _speedValLabel.font = [UIFont boldSystemFontOfSize:12];
-    _speedValLabel.textAlignment = NSTextAlignmentRight;
+    _speedValLabel = [[UILabel alloc] initWithFrame:CGRectMake(mw-55, y, 45, 14)];
+    _speedValLabel.text = @"120"; _speedValLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
+    _speedValLabel.font = [UIFont boldSystemFontOfSize:11]; _speedValLabel.textAlignment = NSTextAlignmentRight;
     [self addSubview:_speedValLabel];
-    y += 18;
+    y += 14;
     
-    _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(15, y, w, 28)];
+    _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(12, y, w, 22)];
     _speedSlider.minimumValue = 1; _speedSlider.maximumValue = 150; _speedSlider.value = 120;
     _speedSlider.tintColor = [UIColor orangeColor];
     [_speedSlider addTarget:self action:@selector(speedChanged) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_speedSlider];
-    y += 30;
+    y += 26;
     
-    UIView *line2 = [[UIView alloc] initWithFrame:CGRectMake(15, y, w, 1)];
-    line2.backgroundColor = [UIColor colorWithRed:0.4 green:0.2 blue:0.5 alpha:0.5];
-    [self addSubview:line2];
-    y += 10;
+    UIView *ln2 = [[UIView alloc] initWithFrame:CGRectMake(12, y, w, 0.5)];
+    ln2.backgroundColor = [UIColor colorWithRed:0.4 green:0.2 blue:0.6 alpha:0.4];
+    [self addSubview:ln2];
+    y += 6;
     
-    UILabel *secEsp = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
-    secEsp.text = @"👁 ESP";
-    secEsp.textColor = [UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0];
-    secEsp.font = [UIFont boldSystemFontOfSize:16];
-    [self addSubview:secEsp];
+    // ESP
+    UILabel *sesp = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 60, 20)];
+    sesp.text = @"ESP"; sesp.textColor = [UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0];
+    sesp.font = [UIFont boldSystemFontOfSize:14]; [self addSubview:sesp];
     
-    _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 70, y, 50, 22)];
+    _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-2, 50, 20)];
     _espSwitch.onTintColor = [UIColor cyanColor];
     [_espSwitch addTarget:self action:@selector(toggleESP) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_espSwitch];
-    y += 28;
+    y += 24;
     
-    UILabel *lineLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 16)];
-    lineLbl.text = @"Show Lines:";
-    lineLbl.textColor = [UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0];
-    lineLbl.font = [UIFont systemFontOfSize:12];
-    [self addSubview:lineLbl];
+    UILabel *ll = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 100, 14)];
+    ll.text = @"Show Lines:"; ll.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
+    ll.font = [UIFont systemFontOfSize:11]; [self addSubview:ll];
     
-    _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 70, y - 2, 50, 22)];
+    _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-3, 50, 20)];
     _lineSwitch.onTintColor = [UIColor yellowColor];
     [_lineSwitch addTarget:self action:@selector(toggleLine) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_lineSwitch];
-    y += 26;
+    y += 22;
     
-    UILabel *bulletLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 16)];
-    bulletLbl.text = @"Bullet Lines:";
-    bulletLbl.textColor = [UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0];
-    bulletLbl.font = [UIFont systemFontOfSize:12];
-    [self addSubview:bulletLbl];
+    UILabel *bl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 100, 14)];
+    bl.text = @"Bullet Line:"; bl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
+    bl.font = [UIFont systemFontOfSize:11]; [self addSubview:bl];
     
-    _bulletLineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 70, y - 2, 50, 22)];
+    _bulletLineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-3, 50, 20)];
     _bulletLineSwitch.onTintColor = [UIColor redColor];
     [_bulletLineSwitch addTarget:self action:@selector(toggleBulletLine) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_bulletLineSwitch];
-    y += 26;
+    y += 22;
     
-    UILabel *dsLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 120, 16)];
-    dsLbl.text = @"Distance:";
-    dsLbl.textColor = [UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0];
-    dsLbl.font = [UIFont systemFontOfSize:12];
-    [self addSubview:dsLbl];
+    UILabel *dl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 14)];
+    dl.text = @"Distance:"; dl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
+    dl.font = [UIFont systemFontOfSize:11]; [self addSubview:dl];
     
-    _distValLabel = [[UILabel alloc] initWithFrame:CGRectMake(w-55, y, 50, 16)];
-    _distValLabel.text = @"200m";
-    _distValLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0];
-    _distValLabel.font = [UIFont boldSystemFontOfSize:12];
-    _distValLabel.textAlignment = NSTextAlignmentRight;
+    _distValLabel = [[UILabel alloc] initWithFrame:CGRectMake(mw-55, y, 45, 14)];
+    _distValLabel.text = @"200m"; _distValLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0];
+    _distValLabel.font = [UIFont boldSystemFontOfSize:11]; _distValLabel.textAlignment = NSTextAlignmentRight;
     [self addSubview:_distValLabel];
-    y += 18;
+    y += 14;
     
-    _distSlider = [[UISlider alloc] initWithFrame:CGRectMake(15, y, w, 28)];
+    _distSlider = [[UISlider alloc] initWithFrame:CGRectMake(12, y, w, 22)];
     _distSlider.minimumValue = 50; _distSlider.maximumValue = 350; _distSlider.value = 200;
     _distSlider.tintColor = [UIColor greenColor];
     [_distSlider addTarget:self action:@selector(distChanged) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_distSlider];
-    y += 32;
+    y += 26;
     
     _playerCountLabel = [[UILabel alloc] init];
-    _playerCountLabel.text = @"⚡ Players: 0";
+    _playerCountLabel.text = @"Players: 0";
     _playerCountLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0];
-    _playerCountLabel.font = [UIFont boldSystemFontOfSize:14];
+    _playerCountLabel.font = [UIFont boldSystemFontOfSize:13];
     _playerCountLabel.textAlignment = NSTextAlignmentCenter;
     [_playerCountLabel sizeToFit];
-    _playerCountLabel.frame = CGRectMake(x, y, w, 22);
+    _playerCountLabel.frame = CGRectMake(12, y, w, 20);
     [self addSubview:_playerCountLabel];
 }
 
@@ -818,16 +801,13 @@ static void *AntiDetachLoop(void *arg) {
             for (UIView *v in key.subviews) {
                 if ([v isKindOfClass:[RavFloatingButton class]]) return;
             }
-            CGFloat btnSize = 45;
-            CGFloat fx = key.bounds.size.width - btnSize - 15;
+            CGFloat bs = 45;
+            CGFloat fx = key.bounds.size.width - bs - 15;
             CGFloat fy = key.bounds.size.height * 0.55;
-            RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, btnSize, btnSize)];
+            RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, bs, bs)];
             fb.alpha = 0;
-            __weak typeof(fb) weakFb = fb;
-            fb.onTap = ^{
-                [weakFb removeFromSuperview];
-                [self showMenuAgain];
-            };
+            __weak typeof(fb) wfb = fb;
+            fb.onTap = ^{ [wfb removeFromSuperview]; [self showMenuAgain]; };
             [key addSubview:fb];
             [key bringSubviewToFront:fb];
             [UIView animateWithDuration:0.3 animations:^{ fb.alpha = 1; }];
@@ -844,10 +824,10 @@ static void *AntiDetachLoop(void *arg) {
             }
         }
         if (!key) return;
-        CGFloat mw = 300, mh = 440;
+        CGFloat mw = 240, mh = 360;
         CGFloat mx = (key.bounds.size.width - mw) / 2;
         CGFloat my = (key.bounds.size.height - mh) / 2;
-        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my - 20, mw, mh)];
+        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
         menu.alpha = 0;
         menu.transform = CGAffineTransformMakeScale(0.85, 0.85);
         [key addSubview:menu];
@@ -855,7 +835,7 @@ static void *AntiDetachLoop(void *arg) {
         pthread_mutex_lock(&g_ConfigMutex);
         gConfig.menuVisible = YES;
         pthread_mutex_unlock(&g_ConfigMutex);
-        [UIView animateWithDuration:0.35 delay:0
+        [UIView animateWithDuration:0.3 delay:0
               usingSpringWithDamping:0.7 initialSpringVelocity:0.6
                             options:0 animations:^{ menu.alpha = 1; menu.transform = CGAffineTransformIdentity; }
                         completion:nil];
@@ -898,7 +878,7 @@ static void *AntiDetachLoop(void *arg) {
                 int cnt = 0;
                 for (PlayerData *p in players) if (p.isEnemy && p.isAlive) cnt++;
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    ss->_playerCountLabel.text = [NSString stringWithFormat:@"⚡ Players: %d", cnt];
+                    ss->_playerCountLabel.text = [NSString stringWithFormat:@"Players: %d", cnt];
                 });
             }
         });
@@ -929,17 +909,14 @@ static void *AntiDetachLoop(void *arg) {
 
 - (void)startOverlay {
     if (self.overlayWindow) return;
-    
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    self.overlayWindow = [[UIWindow alloc] initWithFrame:screenBounds];
+    CGRect sb = [UIScreen mainScreen].bounds;
+    self.overlayWindow = [[UIWindow alloc] initWithFrame:sb];
     self.overlayWindow.windowLevel = UIWindowLevelAlert + 1;
     self.overlayWindow.backgroundColor = [UIColor clearColor];
     self.overlayWindow.hidden = NO;
     self.overlayWindow.userInteractionEnabled = NO;
-    
-    self.overlayView = [[ESPOverlayView alloc] initWithFrame:screenBounds];
+    self.overlayView = [[ESPOverlayView alloc] initWithFrame:sb];
     [self.overlayWindow addSubview:self.overlayView];
-    
     [self startUpdateTimer];
 }
 
@@ -973,27 +950,21 @@ static void *AntiDetachLoop(void *arg) {
     UIBezierPath *bulletPath = [UIBezierPath bezierPath];
     
     int count = 0;
-    
-    CGFloat screenW = self.overlayView.bounds.size.width;
-    CGFloat screenH = self.overlayView.bounds.size.height;
+    CGFloat sw = self.overlayView.bounds.size.width;
+    CGFloat sh = self.overlayView.bounds.size.height;
     
     for (PlayerData *p in players) {
         if (!p.isEnemy || !p.isAlive) continue;
         count++;
-        
         float sx = 0, sy = 0;
         if (!WorldToScreen(p.x, p.y, p.z + 1.75f, &sx, &sy)) continue;
-        if (sx < -50 || sx > screenW + 50 || sy < -50 || sy > screenH + 50) continue;
-        
-        CGFloat boxW = 50, boxH = 100;
-        CGRect box = CGRectMake(sx - boxW/2, sy - boxH/2, boxW, boxH);
+        if (sx < -50 || sx > sw + 50 || sy < -50 || sy > sh + 50) continue;
+        CGRect box = CGRectMake(sx - 25, sy - 50, 50, 100);
         [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
-        
         if (lineOn) {
-            [linePath moveToPoint:CGPointMake(screenW/2, screenH/2)];
+            [linePath moveToPoint:CGPointMake(sw/2, sh/2)];
             [linePath addLineToPoint:CGPointMake(sx, sy)];
         }
-        
         if (bulletOn) {
             [bulletPath moveToPoint:CGPointMake(sx, sy - 50)];
             [bulletPath addLineToPoint:CGPointMake(sx, sy + 50)];
@@ -1003,7 +974,7 @@ static void *AntiDetachLoop(void *arg) {
     self.overlayView.boxLayer.path = boxPath.CGPath;
     self.overlayView.lineLayer.path = linePath.CGPath;
     self.overlayView.bulletLineLayer.path = bulletPath.CGPath;
-    self.overlayView.playerCountLayer.string = [NSString stringWithFormat:@"  ⚡ Players: %d  ", count];
+    self.overlayView.playerCountLayer.string = [NSString stringWithFormat:@"Players: %d", count];
 }
 
 - (void)stopOverlay {
@@ -1020,10 +991,9 @@ static void *AntiDetachLoop(void *arg) {
 // 🚀 Launch
 // ====================================================================
 static void LaunchRavFen(void) {
+    [[ESPManager shared] startOverlay];
+    
     dispatch_async(dispatch_get_main_queue(), ^{
-        // تشغيل ESP Overlay
-        [[ESPManager shared] startOverlay];
-        
         UIWindow *key = nil;
         for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if (scene.activationState == UISceneActivationStateForegroundActive) {
@@ -1043,21 +1013,21 @@ static void LaunchRavFen(void) {
                 [splash removeFromSuperview];
                 RavCaptchaView *captcha = [[RavCaptchaView alloc] initWithFrame:key.bounds];
                 captcha.onDone = ^{
-                    CGFloat btnSize = 45;
-                    CGFloat fx = key.bounds.size.width - btnSize - 15;
+                    CGFloat bs = 45;
+                    CGFloat fx = key.bounds.size.width - bs - 15;
                     CGFloat fy = key.bounds.size.height * 0.55;
-                    RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, btnSize, btnSize)];
+                    RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, bs, bs)];
                     fb.alpha = 0;
-                    __weak typeof(fb) weakFb = fb;
+                    __weak typeof(fb) wfb = fb;
                     fb.onTap = ^{
-                        [weakFb removeFromSuperview];
-                        CGFloat mw = 300, mh = 440;
+                        [wfb removeFromSuperview];
+                        CGFloat mw = 240, mh = 360;
                         CGFloat mx = (key.bounds.size.width - mw) / 2;
                         CGFloat my = (key.bounds.size.height - mh) / 2;
                         for (UIView *v in key.subviews) {
                             if ([v isKindOfClass:[RavMenuView class]]) return;
                         }
-                        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my - 20, mw, mh)];
+                        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
                         menu.alpha = 0;
                         menu.transform = CGAffineTransformMakeScale(0.85, 0.85);
                         [key addSubview:menu];
@@ -1065,7 +1035,7 @@ static void LaunchRavFen(void) {
                         pthread_mutex_lock(&g_ConfigMutex);
                         gConfig.menuVisible = YES;
                         pthread_mutex_unlock(&g_ConfigMutex);
-                        [UIView animateWithDuration:0.35 delay:0
+                        [UIView animateWithDuration:0.3 delay:0
                               usingSpringWithDamping:0.7 initialSpringVelocity:0.6
                                             options:0 animations:^{ menu.alpha = 1; menu.transform = CGAffineTransformIdentity; }
                                         completion:nil];
