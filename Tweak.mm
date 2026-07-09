@@ -1,6 +1,6 @@
 // ====================================================================
-// RavFen Shadow v6.0 - PUBG Mobile 4.4.0 iOS Tweak
-// ESP كامل + Overlay + World to Screen
+// RavFen Shadow v6.1 - PUBG Mobile 4.4.0 iOS Tweak
+// تم إصلاح warning: variable 'bone' set but not used
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -44,19 +44,17 @@ static pthread_mutex_t g_ConfigMutex = PTHREAD_MUTEX_INITIALIZER;
 typedef struct {
     volatile BOOL aimbotEnabled;
     volatile float aimbotSpeed;
-    volatile int32_t aimbotBone;  // 0=head
     volatile BOOL espEnabled;
-    volatile BOOL espLine;        // خط على العدو
-    volatile BOOL espBulletLine;  // خط مكان الطلق
+    volatile BOOL espLine;
+    volatile BOOL espBulletLine;
     volatile float espDistance;
     volatile BOOL menuVisible;
-    volatile BOOL overlayVisible;
 } RavConfig;
 
 static RavConfig gConfig = {0};
 
 // ====================================================================
-// 🔐 الأوفستات (ViewMatrix مضافة)
+// 🔐 الأوفستات
 // ====================================================================
 static const uint8_t kEncryptedOffsets[] = {
     0x8D, 0x06, 0x0E, 0xD7, 0x8D, 0x06, 0x0E, 0xD7, // 0: GWorld
@@ -190,7 +188,6 @@ static float g_ViewMatrix[16] = {0};
 // 🌐 World to Screen
 // ====================================================================
 static BOOL WorldToScreen(float wx, float wy, float wz, float *sx, float *sy) {
-    // ضرب Vector بـ Matrix
     float clipX = g_ViewMatrix[0]*wx + g_ViewMatrix[4]*wy + g_ViewMatrix[8]*wz + g_ViewMatrix[12];
     float clipY = g_ViewMatrix[1]*wx + g_ViewMatrix[5]*wy + g_ViewMatrix[9]*wz + g_ViewMatrix[13];
     float clipW = g_ViewMatrix[3]*wx + g_ViewMatrix[7]*wy + g_ViewMatrix[11]*wz + g_ViewMatrix[15];
@@ -313,17 +310,15 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 Aimbot
+// 🎯 Aimbot - ✅ تم حذف variable 'bone' غير المستخدم
 // ====================================================================
 static void DoAimbot(void) {
     BOOL enabled = NO;
     float speed  = 5.0f;
-    int32_t bone = 0;
     
     pthread_mutex_lock(&g_ConfigMutex);
     enabled = gConfig.aimbotEnabled;
     speed   = gConfig.aimbotSpeed;
-    bone    = gConfig.aimbotBone;
     pthread_mutex_unlock(&g_ConfigMutex);
     
     if (!enabled) return;
@@ -349,7 +344,7 @@ static void DoAimbot(void) {
     uint64_t pc    = ReadPtr(lp + OFF(OFF_PC));
     
     float camX = g_LocalX, camY = g_LocalY, camZ = g_LocalZ;
-    // Head shot: ارتفاع الرأس 1.75m
+    // Head shot دائم: ارتفاع الرأس 1.75m
     float targetH = 1.75f;
     float tz = best.z + targetH;
     
@@ -364,9 +359,6 @@ static void DoAimbot(void) {
     float curPitch = ReadFloat(crAddr);
     float curYaw   = ReadFloat(crAddr + 4);
     
-    // ✅ السرعة: slider 1-150، أقصى speed = factor 1.0 (snap فوري)
-    // speed=150 → factor=1.0 → snap to head
-    // speed=75 → factor=0.5 → smooth
     float factor = speed / 150.0f;
     if (factor > 1.0f) factor = 1.0f;
     if (factor < 0.01f) factor = 0.01f;
@@ -478,7 +470,7 @@ static void *AntiDetachLoop(void *arg) {
         [self addSubview:title];
         
         UILabel *sub = [[UILabel alloc] init];
-        sub.text = @"Shadow Edition v6.0";
+        sub.text = @"Shadow Edition v6.1";
         sub.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:1.0 alpha:0.8];
         sub.font = [UIFont systemFontOfSize:16];
         sub.textAlignment = NSTextAlignmentCenter;
@@ -551,7 +543,7 @@ static void *AntiDetachLoop(void *arg) {
     UILabel *_label;
     UIImageView *_dropImage;
     UIPanGestureRecognizer *_pan;
-    UILabel *_ravfenText;  // النص المتحرك
+    UILabel *_ravfenText;
     CGFloat _moveAngle;
 }
 @property (nonatomic, copy) void (^onTap)(void);
@@ -596,7 +588,6 @@ static void *AntiDetachLoop(void *arg) {
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
         [self addGestureRecognizer:tap];
         
-        // ✅ النص المتحرك "RavFen" يدور حول الزر
         _ravfenText = [[UILabel alloc] init];
         _ravfenText.text = @"RavFen";
         _ravfenText.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.4];
@@ -641,7 +632,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 📋 Menu View (محسنة بصرياً)
+// 📋 Menu View
 // ====================================================================
 @interface RavMenuView : UIView {
     dispatch_queue_t _bgQueue;
@@ -650,8 +641,6 @@ static void *AntiDetachLoop(void *arg) {
     UISlider *_speedSlider, *_distSlider;
     UILabel *_speedValLabel, *_distValLabel;
     UISwitch *_aimbotSwitch, *_espSwitch, *_lineSwitch, *_bulletLineSwitch;
-    UIButton *_boneBtn;
-    UILabel *_titleLabel;
 }
 @end
 
@@ -679,14 +668,14 @@ static void *AntiDetachLoop(void *arg) {
 - (void)buildUI {
     CGFloat w = self.bounds.size.width - 30, x = 15, y = 22, mw = self.bounds.size.width;
     
-    _titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, y, w, 32)];
-    _titleLabel.text = @"⚡ RavFen Shadow ⚡";
-    _titleLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    _titleLabel.font = [UIFont boldSystemFontOfSize:22];
-    _titleLabel.textAlignment = NSTextAlignmentCenter;
-    _titleLabel.shadowColor = [UIColor purpleColor];
-    _titleLabel.shadowOffset = CGSizeMake(1, 1);
-    [self addSubview:_titleLabel];
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, y, w, 32)];
+    titleLabel.text = @"⚡ RavFen Shadow ⚡";
+    titleLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
+    titleLabel.font = [UIFont boldSystemFontOfSize:22];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    titleLabel.shadowColor = [UIColor purpleColor];
+    titleLabel.shadowOffset = CGSizeMake(1, 1);
+    [self addSubview:titleLabel];
     
     UIButton *hideBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     hideBtn.frame = CGRectMake(mw - 42, 12, 32, 32);
@@ -703,7 +692,6 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:line1];
     y += 10;
     
-    // Aimbot Section
     UILabel *secAim = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
     secAim.text = @"🎯 Aimbot";
     secAim.textColor = [UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0];
@@ -717,7 +705,7 @@ static void *AntiDetachLoop(void *arg) {
     y += 28;
     
     UILabel *spLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 130, 16)];
-    spLbl.text = @"Speed (1=150):";
+    spLbl.text = @"Speed (1-150):";
     spLbl.textColor = [UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0];
     spLbl.font = [UIFont systemFontOfSize:12];
     [self addSubview:spLbl];
@@ -742,7 +730,6 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:line2];
     y += 10;
     
-    // ESP Section
     UILabel *secEsp = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
     secEsp.text = @"👁 ESP";
     secEsp.textColor = [UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0];
@@ -923,7 +910,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 🎯 ESP Manager (يدير الرسم)
+// 🎯 ESP Manager
 // ====================================================================
 @interface ESPManager : NSObject
 @property (nonatomic, strong) UIWindow *overlayWindow;
@@ -998,18 +985,15 @@ static void *AntiDetachLoop(void *arg) {
         if (!WorldToScreen(p.x, p.y, p.z + 1.75f, &sx, &sy)) continue;
         if (sx < -50 || sx > screenW + 50 || sy < -50 || sy > screenH + 50) continue;
         
-        // Box
         CGFloat boxW = 50, boxH = 100;
         CGRect box = CGRectMake(sx - boxW/2, sy - boxH/2, boxW, boxH);
         [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
         
-        // Line from screen center to enemy
         if (lineOn) {
             [linePath moveToPoint:CGPointMake(screenW/2, screenH/2)];
             [linePath addLineToPoint:CGPointMake(sx, sy)];
         }
         
-        // Bullet line (shorter, from bottom of screen)
         if (bulletOn) {
             [bulletPath moveToPoint:CGPointMake(sx, sy - 50)];
             [bulletPath addLineToPoint:CGPointMake(sx, sy + 50)];
@@ -1037,6 +1021,9 @@ static void *AntiDetachLoop(void *arg) {
 // ====================================================================
 static void LaunchRavFen(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        // تشغيل ESP Overlay
+        [[ESPManager shared] startOverlay];
+        
         UIWindow *key = nil;
         for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
             if (scene.activationState == UISceneActivationStateForegroundActive) {
@@ -1102,17 +1089,14 @@ static void Init(void) {
     GetBaseAddress();
     InitOffsets();
     
-    // ✅ كل شي طافي بالبداية - المستخدم يفعل
     pthread_mutex_lock(&g_ConfigMutex);
     gConfig.aimbotEnabled = NO;
     gConfig.aimbotSpeed = 120.0f;
-    gConfig.aimbotBone = 0;
     gConfig.espEnabled = NO;
     gConfig.espLine = NO;
     gConfig.espBulletLine = NO;
     gConfig.espDistance = 200.0f;
     gConfig.menuVisible = NO;
-    gConfig.overlayVisible = NO;
     pthread_mutex_unlock(&g_ConfigMutex);
     
     pthread_t th;
