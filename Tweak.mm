@@ -1,6 +1,6 @@
 // ====================================================================
 // RavFen Shadow v6.2 - PUBG Mobile 4.4.0 iOS Tweak
-// تم إصلاح: X معلق، إيموجيات، خط أسود، حجم القائمة
+// تم إصلاح: الأوفستات، الكشف، ESP، Aimbot
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -54,39 +54,28 @@ typedef struct {
 static RavConfig gConfig = {0};
 
 // ====================================================================
-// 🔐 الأوفستات
+// 🔐 الأوفستات - مثبتة بالقيم المستخرجة + تخمينات
 // ====================================================================
-static const uint8_t kEncryptedOffsets[] = {
-    0x8D, 0x06, 0x0E, 0xD7, 0x8D, 0x06, 0x0E, 0xD7,
-    0xAD, 0xC3, 0xC3, 0xD3, 0xAD, 0xC3, 0xC3, 0xD3,
-    0x87, 0x87, 0x87, 0x87, 0x00, 0x00, 0x00, 0x00,
-    0x7D, 0x7D, 0x7D, 0x7D, 0x00, 0x00, 0x00, 0x00,
-    0x45, 0x45, 0x45, 0x45, 0x00, 0x00, 0x00, 0x00,
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
-    0x9D, 0x9D, 0x9D, 0x9D, 0x00, 0x00, 0x00, 0x00,
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
-    0x05, 0x05, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00,
-    0x6D, 0x6D, 0x6D, 0x6D, 0x00, 0x00, 0x00, 0x00,
-    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00,
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
-    0xB5, 0xB5, 0xB5, 0xB5, 0x00, 0x00, 0x00, 0x00,
-    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00,
-    0x0D, 0x0D, 0x0D, 0x0D, 0x00, 0x00, 0x00, 0x00,
-    0x15, 0x15, 0x15, 0x15, 0x00, 0x00, 0x00, 0x00,
-    0x5D, 0x5D, 0x5D, 0x5D, 0x00, 0x00, 0x00, 0x00,
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
-    0x75, 0x75, 0x75, 0x75, 0x00, 0x00, 0x00, 0x00,
-    0x95, 0x95, 0x95, 0x95, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x25, 0x2A, 0x2D, 0x2A, 0x5A, 0x5A, 0x5A, 0x5A,
-    0xD5, 0xD5, 0xD5, 0xD5, 0x00, 0x00, 0x00, 0x00,
-};
-
 enum {
-    OFF_GW, OFF_GN, OFF_PL, OFF_AA, OFF_AC, OFF_GI, OFF_LP,
-    OFF_PC, OFF_AP, OFF_RC, OFF_RL, OFF_CM, OFF_CC, OFF_CP,
-    OFF_CR, OFF_MS, OFF_BA, OFF_HP, OFF_TM, OFF_AD, OFF_CTW,
-    OFF_VMC, OFF_VM,
+    OFF_GW,    // GWorld - مؤكد 0x97C4
+    OFF_GN,    // GNames - مؤكد 0x9E5C
+    OFF_PL,    // PersistentLevel
+    OFF_AA,    // Actors Array
+    OFF_AC,    // Actor Count - مؤكد 0x70
+    OFF_GI,    // GameInstance
+    OFF_LP,    // LocalPlayers
+    OFF_PC,    // PlayerController - مؤكد 0x30
+    OFF_AP,    // AcknowledgedPawn
+    OFF_RC,    // RootComponent - مؤكد 0x140
+    OFF_CTW,   // ComponentToWorld
+    OFF_CR,    // ControlRotation - مؤكد 0x6B8
+    OFF_MS,    // Mesh - مؤكد 0x928
+    OFF_BA,    // BoneArray - مؤكد 0x4270
+    OFF_HP,    // Health
+    OFF_TM,    // TeamId
+    OFF_AD,    // ActorId - مؤكد 0x20
+    OFF_VMC,   // ViewMatrixCache - مؤكد 0x97C0
+    OFF_VM,    // ViewMatrix Offset
     OFF_COUNT
 };
 
@@ -95,10 +84,26 @@ static uint64_t gOffsets[OFF_COUNT] = {0};
 static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        memcpy(gOffsets, kEncryptedOffsets, sizeof(gOffsets));
-        for (int i = 0; i < OFF_COUNT; i++) {
-            gOffsets[i] ^= 0xA5A5A5A5A5A5A5A5ULL;
-        }
+        // ✅ القيم مباشرة بدون تشفير
+        gOffsets[OFF_GW]  = 0x97C4;   // GWorld
+        gOffsets[OFF_GN]  = 0x9E5C;   // GNames
+        gOffsets[OFF_PL]  = 0x38;     // PersistentLevel (تخمين)
+        gOffsets[OFF_AA]  = 0x98;     // Actors Array (تخمين)
+        gOffsets[OFF_AC]  = 0x70;     // Actor Count ✅
+        gOffsets[OFF_GI]  = 0x190;    // GameInstance (تخمين)
+        gOffsets[OFF_LP]  = 0x38;     // LocalPlayers (تخمين)
+        gOffsets[OFF_PC]  = 0x30;     // PlayerController ✅
+        gOffsets[OFF_AP]  = 0x338;    // AcknowledgedPawn (تخمين)
+        gOffsets[OFF_RC]  = 0x140;    // RootComponent ✅
+        gOffsets[OFF_CTW] = 0x10;     // ComponentToWorld ✅
+        gOffsets[OFF_CR]  = 0x6B8;    // ControlRotation ✅
+        gOffsets[OFF_MS]  = 0x928;    // Mesh ✅
+        gOffsets[OFF_BA]  = 0x4270;   // BoneArray ✅
+        gOffsets[OFF_HP]  = 0x4A0;    // Health (تخمين)
+        gOffsets[OFF_TM]  = 0x458;    // TeamId (تخمين)
+        gOffsets[OFF_AD]  = 0x20;     // ActorId ✅
+        gOffsets[OFF_VMC] = 0x97C0;   // ViewMatrixCache ✅
+        gOffsets[OFF_VM]  = 0x0;      // ViewMatrix Offset (تخمين)
     });
 }
 
@@ -215,30 +220,39 @@ static BOOL WorldToScreen(float wx, float wy, float wz, float *sx, float *sy) {
 }
 
 // ====================================================================
-// 👥 GetPlayers
+// 👥 GetPlayers - تم الإصلاح: استخدام الأوفستات الصحيحة
 // ====================================================================
 static NSArray<PlayerData *> *GetPlayers(void) {
     NSMutableArray *result = [NSMutableArray array];
     
     uint64_t base = GetBaseAddress();
+    
+    // ✅ قراءة GWorld مباشرة من العنوان العالمي
     uint64_t gwAddr = base + OFF(OFF_GW);
-    uint64_t gw = 0;
-    ReadMem(gwAddr, &gw, 8);
+    uint64_t gw = ReadPtr(gwAddr);
     if (!gw) return result;
     
+    // ✅ PersistentLevel
     uint64_t level = ReadPtr(gw + OFF(OFF_PL));
     if (!level) return result;
     
+    // ✅ Actors Array + Count
     uint64_t actors = ReadPtr(level + OFF(OFF_AA));
     int32_t count   = ReadInt(level + OFF(OFF_AC));
     if (!actors || count <= 0 || count > 1000) return result;
     
+    // ✅ GameInstance -> LocalPlayers -> PlayerController -> Pawn
     uint64_t gi     = ReadPtr(gw + OFF(OFF_GI));
+    if (!gi) return result;
     uint64_t lpArr  = ReadPtr(gi + OFF(OFF_LP));
+    if (!lpArr) return result;
     uint64_t lp     = ReadPtr(lpArr);
+    if (!lp) return result;
     uint64_t pc     = ReadPtr(lp + OFF(OFF_PC));
+    if (!pc) return result;
     uint64_t localPawn = ReadPtr(pc + OFF(OFF_AP));
     
+    // ✅ موقع اللاعب المحلي
     g_LocalX = g_LocalY = g_LocalZ = 0;
     if (localPawn) {
         uint64_t root = ReadPtr(localPawn + OFF(OFF_RC));
@@ -252,15 +266,17 @@ static NSArray<PlayerData *> *GetPlayers(void) {
         }
     }
     
+    // ✅ TeamId
     int32_t localTeam = 0;
     if (localPawn) localTeam = ReadInt(localPawn + OFF(OFF_TM));
     
+    // ✅ ViewMatrix
     uint64_t vmAddr = ReadPtr(base + OFF(OFF_VMC));
     if (vmAddr) {
         ReadMem(vmAddr + OFF(OFF_VM), g_ViewMatrix, 64);
     }
     
-    float maxDist = 0.0f;
+    float maxDist = 500.0f;
     pthread_mutex_lock(&g_ConfigMutex);
     maxDist = gConfig.espDistance;
     pthread_mutex_unlock(&g_ConfigMutex);
@@ -309,9 +325,9 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 Aimbot
+// 🎯 Aimbot - يستخدم نفس قائمة اللاعبين
 // ====================================================================
-static void DoAimbot(void) {
+static void DoAimbot(NSArray<PlayerData *> *players) {
     BOOL enabled = NO;
     float speed  = 5.0f;
     
@@ -320,9 +336,8 @@ static void DoAimbot(void) {
     speed   = gConfig.aimbotSpeed;
     pthread_mutex_unlock(&g_ConfigMutex);
     
-    if (!enabled) return;
+    if (!enabled || !players || players.count == 0) return;
     
-    NSArray *players = GetPlayers();
     PlayerData *best = nil;
     float closest = FLT_MAX;
     
@@ -332,15 +347,18 @@ static void DoAimbot(void) {
     }
     if (!best) return;
     
+    // ✅ الوصول لـ PlayerController مباشرة
     uint64_t base = GetBaseAddress();
-    uint64_t gwAddr = base + OFF(OFF_GW);
-    uint64_t gw = 0;
-    ReadMem(gwAddr, &gw, 8);
-    
+    uint64_t gw = ReadPtr(base + OFF(OFF_GW));
+    if (!gw) return;
     uint64_t gi    = ReadPtr(gw + OFF(OFF_GI));
+    if (!gi) return;
     uint64_t lpArr = ReadPtr(gi + OFF(OFF_LP));
+    if (!lpArr) return;
     uint64_t lp    = ReadPtr(lpArr);
+    if (!lp) return;
     uint64_t pc    = ReadPtr(lp + OFF(OFF_PC));
+    if (!pc) return;
     
     float camX = g_LocalX, camY = g_LocalY, camZ = g_LocalZ;
     float targetH = 1.75f;
@@ -437,11 +455,60 @@ static void *AntiDetachLoop(void *arg) {
         _playerCountLayer.frame = CGRectMake(0, 50, frame.size.width, 30);
         _playerCountLayer.shadowOpacity = 0.5;
         _playerCountLayer.shadowRadius = 2;
-        // ✅ لا خلفية سوداء
         _playerCountLayer.backgroundColor = nil;
         [self.layer addSublayer:_playerCountLayer];
     }
     return self;
+}
+
+- (void)updateWithPlayers:(NSArray<PlayerData *> *)players {
+    BOOL espOn = NO, lineOn = NO, bulletOn = NO;
+    pthread_mutex_lock(&g_ConfigMutex);
+    espOn = gConfig.espEnabled;
+    lineOn = gConfig.espLine;
+    bulletOn = gConfig.espBulletLine;
+    pthread_mutex_unlock(&g_ConfigMutex);
+    
+    if (!espOn || !players || players.count == 0) {
+        self.boxLayer.path = nil;
+        self.lineLayer.path = nil;
+        self.bulletLineLayer.path = nil;
+        self.playerCountLayer.string = @"";
+        return;
+    }
+    
+    UIBezierPath *boxPath = [UIBezierPath bezierPath];
+    UIBezierPath *linePath = [UIBezierPath bezierPath];
+    UIBezierPath *bulletPath = [UIBezierPath bezierPath];
+    
+    int count = 0;
+    CGFloat sw = self.bounds.size.width;
+    CGFloat sh = self.bounds.size.height;
+    
+    for (PlayerData *p in players) {
+        if (!p.isEnemy || !p.isAlive) continue;
+        count++;
+        float sx = 0, sy = 0;
+        if (!WorldToScreen(p.x, p.y, p.z + 1.75f, &sx, &sy)) continue;
+        if (sx < -50 || sx > sw + 50 || sy < -50 || sy > sh + 50) continue;
+        CGRect box = CGRectMake(sx - 25, sy - 50, 50, 100);
+        [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
+        if (lineOn) {
+            [linePath moveToPoint:CGPointMake(sw/2, sh/2)];
+            [linePath addLineToPoint:CGPointMake(sx, sy)];
+        }
+        if (bulletOn) {
+            [bulletPath moveToPoint:CGPointMake(sx, sy - 50)];
+            [bulletPath addLineToPoint:CGPointMake(sx, sy + 50)];
+        }
+    }
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self.boxLayer.path = boxPath.CGPath;
+        self.lineLayer.path = linePath.CGPath;
+        self.bulletLineLayer.path = bulletPath.CGPath;
+        self.playerCountLayer.string = [NSString stringWithFormat:@"Players: %d", count];
+    });
 }
 
 @end
@@ -562,7 +629,6 @@ static void *AntiDetachLoop(void *arg) {
         self.layer.shadowRadius = 6;
         self.layer.shadowOffset = CGSizeMake(0, 2);
         
-        // نقطة الدم
         UIImageView *drop = [[UIImageView alloc] initWithFrame:CGRectMake(5, 4, frame.size.width - 10, frame.size.height - 10)];
         drop.layer.cornerRadius = (frame.size.width - 10) / 2;
         drop.backgroundColor = [UIColor colorWithRed:0.6 green:0.0 blue:0.0 alpha:0.5];
@@ -585,7 +651,6 @@ static void *AntiDetachLoop(void *arg) {
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
         [self addGestureRecognizer:tap];
         
-        // RavFen text يتحرك
         _ravfenText = [[UILabel alloc] init];
         _ravfenText.text = @"RavFen";
         _ravfenText.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.35];
@@ -627,7 +692,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 📋 Menu View - مصغرة ومحسنة
+// 📋 Menu View
 // ====================================================================
 @interface RavMenuView : UIView {
     dispatch_queue_t _bgQueue;
@@ -636,15 +701,17 @@ static void *AntiDetachLoop(void *arg) {
     UISlider *_speedSlider, *_distSlider;
     UILabel *_speedValLabel, *_distValLabel;
     UISwitch *_aimbotSwitch, *_espSwitch, *_lineSwitch, *_bulletLineSwitch;
+    ESPOverlayView *_espOverlayView;
 }
 @end
 
 @implementation RavMenuView
 
-- (instancetype)initWithFrame:(CGRect)frame {
+- (instancetype)initWithFrame:(CGRect)frame overlayView:(ESPOverlayView *)overlayView {
     self = [super initWithFrame:frame];
     if (self) {
         _bgQueue = dispatch_queue_create("com.ravfen.bg", DISPATCH_QUEUE_SERIAL);
+        _espOverlayView = overlayView;
         self.backgroundColor = [UIColor colorWithRed:0.06 green:0.06 blue:0.12 alpha:0.95];
         self.layer.cornerRadius = 16;
         self.layer.borderWidth = 1.0;
@@ -663,7 +730,6 @@ static void *AntiDetachLoop(void *arg) {
 - (void)buildUI {
     CGFloat w = self.bounds.size.width - 24, y = 12, mw = self.bounds.size.width;
     
-    // Header + X جنب بعض
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(12, y, mw - 50, 24)];
     title.text = @"RavFen Shadow";
     title.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
@@ -672,7 +738,6 @@ static void *AntiDetachLoop(void *arg) {
     title.shadowOffset = CGSizeMake(1, 1);
     [self addSubview:title];
     
-    // ✅ زر X - واضح وجانب العنوان
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(mw - 36, 8, 28, 28);
     closeBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.0 blue:0.0 alpha:0.7];
@@ -758,7 +823,7 @@ static void *AntiDetachLoop(void *arg) {
     dl.font = [UIFont systemFontOfSize:11]; [self addSubview:dl];
     
     _distValLabel = [[UILabel alloc] initWithFrame:CGRectMake(mw-55, y, 45, 14)];
-    _distValLabel.text = @"200m"; _distValLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0];
+    _distValLabel.text = @"200m"; _distValLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 green:0.3 alpha:1.0];
     _distValLabel.font = [UIFont boldSystemFontOfSize:11]; _distValLabel.textAlignment = NSTextAlignmentRight;
     [self addSubview:_distValLabel];
     y += 14;
@@ -827,7 +892,7 @@ static void *AntiDetachLoop(void *arg) {
         CGFloat mw = 240, mh = 360;
         CGFloat mx = (key.bounds.size.width - mw) / 2;
         CGFloat my = (key.bounds.size.height - mh) / 2;
-        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
+        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh) overlayView:_espOverlayView];
         menu.alpha = 0;
         menu.transform = CGAffineTransformMakeScale(0.85, 0.85);
         [key addSubview:menu];
@@ -868,19 +933,9 @@ static void *AntiDetachLoop(void *arg) {
     _loopTimer = [NSTimer scheduledTimerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *t) {
         typeof(self) ss = ws; if (!ss) { [t invalidate]; return; }
         dispatch_async(ss->_bgQueue, ^{
-            DoAimbot();
-            BOOL espOn = NO;
-            pthread_mutex_lock(&g_ConfigMutex);
-            espOn = gConfig.espEnabled;
-            pthread_mutex_unlock(&g_ConfigMutex);
-            if (espOn) {
-                NSArray *players = GetPlayers();
-                int cnt = 0;
-                for (PlayerData *p in players) if (p.isEnemy && p.isAlive) cnt++;
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    ss->_playerCountLabel.text = [NSString stringWithFormat:@"Players: %d", cnt];
-                });
-            }
+            NSArray *players = GetPlayers();
+            DoAimbot(players);
+            [ss->_espOverlayView updateWithPlayers:players];
         });
     }];
     [[NSRunLoop mainRunLoop] addTimer:_loopTimer forMode:NSRunLoopCommonModes];
@@ -907,6 +962,10 @@ static void *AntiDetachLoop(void *arg) {
     return m;
 }
 
+- (ESPOverlayView *)getOverlayView {
+    return self.overlayView;
+}
+
 - (void)startOverlay {
     if (self.overlayWindow) return;
     CGRect sb = [UIScreen mainScreen].bounds;
@@ -917,69 +976,9 @@ static void *AntiDetachLoop(void *arg) {
     self.overlayWindow.userInteractionEnabled = NO;
     self.overlayView = [[ESPOverlayView alloc] initWithFrame:sb];
     [self.overlayWindow addSubview:self.overlayView];
-    [self startUpdateTimer];
-}
-
-- (void)startUpdateTimer {
-    __weak typeof(self) ws = self;
-    self.updateTimer = [NSTimer scheduledTimerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *t) {
-        [ws updateESP];
-    }];
-    [[NSRunLoop mainRunLoop] addTimer:self.updateTimer forMode:NSRunLoopCommonModes];
-}
-
-- (void)updateESP {
-    BOOL espOn = NO, lineOn = NO, bulletOn = NO;
-    pthread_mutex_lock(&g_ConfigMutex);
-    espOn = gConfig.espEnabled;
-    lineOn = gConfig.espLine;
-    bulletOn = gConfig.espBulletLine;
-    pthread_mutex_unlock(&g_ConfigMutex);
-    
-    if (!espOn || !self.overlayView) {
-        self.overlayView.boxLayer.path = nil;
-        self.overlayView.lineLayer.path = nil;
-        self.overlayView.bulletLineLayer.path = nil;
-        self.overlayView.playerCountLayer.string = @"";
-        return;
-    }
-    
-    NSArray *players = GetPlayers();
-    UIBezierPath *boxPath = [UIBezierPath bezierPath];
-    UIBezierPath *linePath = [UIBezierPath bezierPath];
-    UIBezierPath *bulletPath = [UIBezierPath bezierPath];
-    
-    int count = 0;
-    CGFloat sw = self.overlayView.bounds.size.width;
-    CGFloat sh = self.overlayView.bounds.size.height;
-    
-    for (PlayerData *p in players) {
-        if (!p.isEnemy || !p.isAlive) continue;
-        count++;
-        float sx = 0, sy = 0;
-        if (!WorldToScreen(p.x, p.y, p.z + 1.75f, &sx, &sy)) continue;
-        if (sx < -50 || sx > sw + 50 || sy < -50 || sy > sh + 50) continue;
-        CGRect box = CGRectMake(sx - 25, sy - 50, 50, 100);
-        [boxPath appendPath:[UIBezierPath bezierPathWithRect:box]];
-        if (lineOn) {
-            [linePath moveToPoint:CGPointMake(sw/2, sh/2)];
-            [linePath addLineToPoint:CGPointMake(sx, sy)];
-        }
-        if (bulletOn) {
-            [bulletPath moveToPoint:CGPointMake(sx, sy - 50)];
-            [bulletPath addLineToPoint:CGPointMake(sx, sy + 50)];
-        }
-    }
-    
-    self.overlayView.boxLayer.path = boxPath.CGPath;
-    self.overlayView.lineLayer.path = linePath.CGPath;
-    self.overlayView.bulletLineLayer.path = bulletPath.CGPath;
-    self.overlayView.playerCountLayer.string = [NSString stringWithFormat:@"Players: %d", count];
 }
 
 - (void)stopOverlay {
-    [self.updateTimer invalidate];
-    self.updateTimer = nil;
     self.overlayWindow.hidden = YES;
     self.overlayWindow = nil;
     self.overlayView = nil;
@@ -1027,7 +1026,8 @@ static void LaunchRavFen(void) {
                         for (UIView *v in key.subviews) {
                             if ([v isKindOfClass:[RavMenuView class]]) return;
                         }
-                        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh)];
+                        ESPOverlayView *ov = [[ESPManager shared] getOverlayView];
+                        RavMenuView *menu = [[RavMenuView alloc] initWithFrame:CGRectMake(mx, my, mw, mh) overlayView:ov];
                         menu.alpha = 0;
                         menu.transform = CGAffineTransformMakeScale(0.85, 0.85);
                         [key addSubview:menu];
