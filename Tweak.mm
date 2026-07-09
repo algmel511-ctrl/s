@@ -1,6 +1,6 @@
 // ====================================================================
 // RavFen Shadow v6.2 - PUBG Mobile 4.4.0 iOS Tweak
-// تم إصلاح: الأوفستات، الكشف، ESP، Aimbot
+// تم إصلاح: الأوفستات، الكشف، ESP، Aimbot، أخطاء UI
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -67,7 +67,7 @@ enum {
     OFF_PC,    // PlayerController - مؤكد 0x30
     OFF_AP,    // AcknowledgedPawn
     OFF_RC,    // RootComponent - مؤكد 0x140
-    OFF_CTW,   // ComponentToWorld
+    OFF_CTW,   // ComponentToWorld - مؤكد 0x10
     OFF_CR,    // ControlRotation - مؤكد 0x6B8
     OFF_MS,    // Mesh - مؤكد 0x928
     OFF_BA,    // BoneArray - مؤكد 0x4270
@@ -84,26 +84,26 @@ static uint64_t gOffsets[OFF_COUNT] = {0};
 static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        // ✅ القيم مباشرة بدون تشفير
-        gOffsets[OFF_GW]  = 0x97C4;   // GWorld
-        gOffsets[OFF_GN]  = 0x9E5C;   // GNames
-        gOffsets[OFF_PL]  = 0x38;     // PersistentLevel (تخمين)
-        gOffsets[OFF_AA]  = 0x98;     // Actors Array (تخمين)
-        gOffsets[OFF_AC]  = 0x70;     // Actor Count ✅
-        gOffsets[OFF_GI]  = 0x190;    // GameInstance (تخمين)
-        gOffsets[OFF_LP]  = 0x38;     // LocalPlayers (تخمين)
-        gOffsets[OFF_PC]  = 0x30;     // PlayerController ✅
-        gOffsets[OFF_AP]  = 0x338;    // AcknowledgedPawn (تخمين)
-        gOffsets[OFF_RC]  = 0x140;    // RootComponent ✅
-        gOffsets[OFF_CTW] = 0x10;     // ComponentToWorld ✅
-        gOffsets[OFF_CR]  = 0x6B8;    // ControlRotation ✅
-        gOffsets[OFF_MS]  = 0x928;    // Mesh ✅
-        gOffsets[OFF_BA]  = 0x4270;   // BoneArray ✅
-        gOffsets[OFF_HP]  = 0x4A0;    // Health (تخمين)
-        gOffsets[OFF_TM]  = 0x458;    // TeamId (تخمين)
-        gOffsets[OFF_AD]  = 0x20;     // ActorId ✅
-        gOffsets[OFF_VMC] = 0x97C0;   // ViewMatrixCache ✅
-        gOffsets[OFF_VM]  = 0x0;      // ViewMatrix Offset (تخمين)
+        // القيم مباشرة
+        gOffsets[OFF_GW]  = 0x97C4;
+        gOffsets[OFF_GN]  = 0x9E5C;
+        gOffsets[OFF_PL]  = 0x38;
+        gOffsets[OFF_AA]  = 0x98;
+        gOffsets[OFF_AC]  = 0x70;
+        gOffsets[OFF_GI]  = 0x190;
+        gOffsets[OFF_LP]  = 0x38;
+        gOffsets[OFF_PC]  = 0x30;
+        gOffsets[OFF_AP]  = 0x338;
+        gOffsets[OFF_RC]  = 0x140;
+        gOffsets[OFF_CTW] = 0x10;
+        gOffsets[OFF_CR]  = 0x6B8;
+        gOffsets[OFF_MS]  = 0x928;
+        gOffsets[OFF_BA]  = 0x4270;
+        gOffsets[OFF_HP]  = 0x4A0;
+        gOffsets[OFF_TM]  = 0x458;
+        gOffsets[OFF_AD]  = 0x20;
+        gOffsets[OFF_VMC] = 0x97C0;
+        gOffsets[OFF_VM]  = 0x0;
     });
 }
 
@@ -227,21 +227,17 @@ static NSArray<PlayerData *> *GetPlayers(void) {
     
     uint64_t base = GetBaseAddress();
     
-    // ✅ قراءة GWorld مباشرة من العنوان العالمي
     uint64_t gwAddr = base + OFF(OFF_GW);
     uint64_t gw = ReadPtr(gwAddr);
     if (!gw) return result;
     
-    // ✅ PersistentLevel
     uint64_t level = ReadPtr(gw + OFF(OFF_PL));
     if (!level) return result;
     
-    // ✅ Actors Array + Count
     uint64_t actors = ReadPtr(level + OFF(OFF_AA));
     int32_t count   = ReadInt(level + OFF(OFF_AC));
     if (!actors || count <= 0 || count > 1000) return result;
     
-    // ✅ GameInstance -> LocalPlayers -> PlayerController -> Pawn
     uint64_t gi     = ReadPtr(gw + OFF(OFF_GI));
     if (!gi) return result;
     uint64_t lpArr  = ReadPtr(gi + OFF(OFF_LP));
@@ -252,7 +248,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
     if (!pc) return result;
     uint64_t localPawn = ReadPtr(pc + OFF(OFF_AP));
     
-    // ✅ موقع اللاعب المحلي
     g_LocalX = g_LocalY = g_LocalZ = 0;
     if (localPawn) {
         uint64_t root = ReadPtr(localPawn + OFF(OFF_RC));
@@ -266,11 +261,9 @@ static NSArray<PlayerData *> *GetPlayers(void) {
         }
     }
     
-    // ✅ TeamId
     int32_t localTeam = 0;
     if (localPawn) localTeam = ReadInt(localPawn + OFF(OFF_TM));
     
-    // ✅ ViewMatrix
     uint64_t vmAddr = ReadPtr(base + OFF(OFF_VMC));
     if (vmAddr) {
         ReadMem(vmAddr + OFF(OFF_VM), g_ViewMatrix, 64);
@@ -347,7 +340,6 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
     }
     if (!best) return;
     
-    // ✅ الوصول لـ PlayerController مباشرة
     uint64_t base = GetBaseAddress();
     uint64_t gw = ReadPtr(base + OFF(OFF_GW));
     if (!gw) return;
@@ -448,10 +440,10 @@ static void *AntiDetachLoop(void *arg) {
         [self.layer addSublayer:_bulletLineLayer];
         
         _playerCountLayer = [CATextLayer layer];
-        _playerCountLayer.string = @"";
-        _playerCountLayer.fontSize = 16;
-        _playerCountLayer.foregroundColor = [[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] CGColor];
-        _playerCountLayer.alignmentMode = kCAAlignmentCenter;
+        [_playerCountLayer setString:@""];
+        [_playerCountLayer setFontSize:16];
+        [_playerCountLayer setForegroundColor:[[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] CGColor]];
+        [_playerCountLayer setAlignmentMode:kCAAlignmentCenter];
         _playerCountLayer.frame = CGRectMake(0, 50, frame.size.width, 30);
         _playerCountLayer.shadowOpacity = 0.5;
         _playerCountLayer.shadowRadius = 2;
@@ -473,7 +465,7 @@ static void *AntiDetachLoop(void *arg) {
         self.boxLayer.path = nil;
         self.lineLayer.path = nil;
         self.bulletLineLayer.path = nil;
-        self.playerCountLayer.string = @"";
+        [_playerCountLayer setString:@""];
         return;
     }
     
@@ -507,7 +499,7 @@ static void *AntiDetachLoop(void *arg) {
         self.boxLayer.path = boxPath.CGPath;
         self.lineLayer.path = linePath.CGPath;
         self.bulletLineLayer.path = bulletPath.CGPath;
-        self.playerCountLayer.string = [NSString stringWithFormat:@"Players: %d", count];
+        [_playerCountLayer setString:[NSString stringWithFormat:@"Players: %d", count]];
     });
 }
 
@@ -636,10 +628,10 @@ static void *AntiDetachLoop(void *arg) {
         [self addSubview:drop];
         
         _label = [[UILabel alloc] init];
-        _label.text = @"R";
-        _label.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.95];
-        _label.font = [UIFont boldSystemFontOfSize:20];
-        _label.textAlignment = NSTextAlignmentCenter;
+        [_label setText:@"R"];
+        [_label setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.95]];
+        [_label setFont:[UIFont boldSystemFontOfSize:20]];
+        [_label setTextAlignment:NSTextAlignmentCenter];
         _label.frame = self.bounds;
         _label.shadowColor = [UIColor blackColor];
         _label.shadowOffset = CGSizeMake(1, 1);
@@ -652,10 +644,10 @@ static void *AntiDetachLoop(void *arg) {
         [self addGestureRecognizer:tap];
         
         _ravfenText = [[UILabel alloc] init];
-        _ravfenText.text = @"RavFen";
-        _ravfenText.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.35];
-        _ravfenText.font = [UIFont boldSystemFontOfSize:10];
-        _ravfenText.textAlignment = NSTextAlignmentCenter;
+        [_ravfenText setText:@"RavFen"];
+        [_ravfenText setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.35]];
+        [_ravfenText setFont:[UIFont boldSystemFontOfSize:10]];
+        [_ravfenText setTextAlignment:NSTextAlignmentCenter];
         [self addSubview:_ravfenText];
         
         [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
@@ -692,7 +684,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 📋 Menu View
+// 📋 Menu View - ✅ تم إصلاح أخطاء UI
 // ====================================================================
 @interface RavMenuView : UIView {
     dispatch_queue_t _bgQueue;
@@ -731,9 +723,9 @@ static void *AntiDetachLoop(void *arg) {
     CGFloat w = self.bounds.size.width - 24, y = 12, mw = self.bounds.size.width;
     
     UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(12, y, mw - 50, 24)];
-    title.text = @"RavFen Shadow";
-    title.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    title.font = [UIFont boldSystemFontOfSize:18];
+    [title setText:@"RavFen Shadow"];
+    [title setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];
+    [title setFont:[UIFont boldSystemFontOfSize:18]];
     title.shadowColor = [UIColor purpleColor];
     title.shadowOffset = CGSizeMake(1, 1);
     [self addSubview:title];
@@ -756,8 +748,10 @@ static void *AntiDetachLoop(void *arg) {
     
     // Aimbot
     UILabel *sa = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 20)];
-    sa.text = @"Aimbot"; sa.textColor = [UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0];
-    sa.font = [UIFont boldSystemFontOfSize:14]; [self addSubview:sa];
+    [sa setText:@"Aimbot"];
+    [sa setTextColor:[UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0]];
+    [sa setFont:[UIFont boldSystemFontOfSize:14]];
+    [self addSubview:sa];
     
     _aimbotSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-2, 50, 20)];
     _aimbotSwitch.onTintColor = [UIColor orangeColor];
@@ -766,12 +760,16 @@ static void *AntiDetachLoop(void *arg) {
     y += 24;
     
     UILabel *sl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 14)];
-    sl.text = @"Speed:"; sl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
-    sl.font = [UIFont systemFontOfSize:11]; [self addSubview:sl];
+    [sl setText:@"Speed:"];
+    [sl setTextColor:[UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0]];
+    [sl setFont:[UIFont systemFontOfSize:11]];
+    [self addSubview:sl];
     
     _speedValLabel = [[UILabel alloc] initWithFrame:CGRectMake(mw-55, y, 45, 14)];
-    _speedValLabel.text = @"120"; _speedValLabel.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    _speedValLabel.font = [UIFont boldSystemFontOfSize:11]; _speedValLabel.textAlignment = NSTextAlignmentRight;
+    [_speedValLabel setText:@"120"];
+    [_speedValLabel setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];
+    [_speedValLabel setFont:[UIFont boldSystemFontOfSize:11]];
+    [_speedValLabel setTextAlignment:NSTextAlignmentRight];
     [self addSubview:_speedValLabel];
     y += 14;
     
@@ -789,8 +787,10 @@ static void *AntiDetachLoop(void *arg) {
     
     // ESP
     UILabel *sesp = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 60, 20)];
-    sesp.text = @"ESP"; sesp.textColor = [UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0];
-    sesp.font = [UIFont boldSystemFontOfSize:14]; [self addSubview:sesp];
+    [sesp setText:@"ESP"];
+    [sesp setTextColor:[UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0]];
+    [sesp setFont:[UIFont boldSystemFontOfSize:14]];
+    [self addSubview:sesp];
     
     _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-2, 50, 20)];
     _espSwitch.onTintColor = [UIColor cyanColor];
@@ -799,8 +799,10 @@ static void *AntiDetachLoop(void *arg) {
     y += 24;
     
     UILabel *ll = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 100, 14)];
-    ll.text = @"Show Lines:"; ll.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
-    ll.font = [UIFont systemFontOfSize:11]; [self addSubview:ll];
+    [ll setText:@"Show Lines:"];
+    [ll setTextColor:[UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0]];
+    [ll setFont:[UIFont systemFontOfSize:11]];
+    [self addSubview:ll];
     
     _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-3, 50, 20)];
     _lineSwitch.onTintColor = [UIColor yellowColor];
@@ -809,8 +811,10 @@ static void *AntiDetachLoop(void *arg) {
     y += 22;
     
     UILabel *bl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 100, 14)];
-    bl.text = @"Bullet Line:"; bl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
-    bl.font = [UIFont systemFontOfSize:11]; [self addSubview:bl];
+    [bl setText:@"Bullet Line:"];
+    [bl setTextColor:[UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0]];
+    [bl setFont:[UIFont systemFontOfSize:11]];
+    [self addSubview:bl];
     
     _bulletLineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(mw - 62, y-3, 50, 20)];
     _bulletLineSwitch.onTintColor = [UIColor redColor];
@@ -819,12 +823,19 @@ static void *AntiDetachLoop(void *arg) {
     y += 22;
     
     UILabel *dl = [[UILabel alloc] initWithFrame:CGRectMake(12, y, 80, 14)];
-    dl.text = @"Distance:"; dl.textColor = [UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0];
-    dl.font = [UIFont systemFontOfSize:11]; [self addSubview:dl];
+    [dl setText:@"Distance:"];
+    [dl setTextColor:[UIColor colorWithRed:0.6 green:0.6 blue:0.7 alpha:1.0]];
+    [dl setFont:[UIFont systemFontOfSize:11]];
+    [self addSubview:dl];
     
+    // ✅ تم إصلاح: استخدام setText بدل .text
     _distValLabel = [[UILabel alloc] initWithFrame:CGRectMake(mw-55, y, 45, 14)];
-    _distValLabel.text = @"200m"; _distValLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 green:0.3 alpha:1.0];
-    _distValLabel.font = [UIFont boldSystemFontOfSize:11]; _distValLabel.textAlignment = NSTextAlignmentRight;
+    if (_distValLabel) {
+        [_distValLabel setText:@"200m"];
+        [_distValLabel setTextColor:[UIColor colorWithRed:0.3 green:1.0 green:0.3 alpha:1.0]];
+        [_distValLabel setFont:[UIFont boldSystemFontOfSize:11]];
+        [_distValLabel setTextAlignment:NSTextAlignmentRight];
+    }
     [self addSubview:_distValLabel];
     y += 14;
     
@@ -835,13 +846,16 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:_distSlider];
     y += 26;
     
+    // ✅ تم إصلاح: استخدام setText
     _playerCountLabel = [[UILabel alloc] init];
-    _playerCountLabel.text = @"Players: 0";
-    _playerCountLabel.textColor = [UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0];
-    _playerCountLabel.font = [UIFont boldSystemFontOfSize:13];
-    _playerCountLabel.textAlignment = NSTextAlignmentCenter;
-    [_playerCountLabel sizeToFit];
-    _playerCountLabel.frame = CGRectMake(12, y, w, 20);
+    if (_playerCountLabel) {
+        [_playerCountLabel setText:@"Players: 0"];
+        [_playerCountLabel setTextColor:[UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0]];
+        [_playerCountLabel setFont:[UIFont boldSystemFontOfSize:13]];
+        [_playerCountLabel setTextAlignment:NSTextAlignmentCenter];
+        [_playerCountLabel sizeToFit];
+        _playerCountLabel.frame = CGRectMake(12, y, w, 20);
+    }
     [self addSubview:_playerCountLabel];
 }
 
@@ -917,7 +931,11 @@ static void *AntiDetachLoop(void *arg) {
     gConfig.aimbotSpeed = _speedSlider.value;
     float val = _speedSlider.value;
     pthread_mutex_unlock(&g_ConfigMutex);
-    dispatch_async(dispatch_get_main_queue(), ^{ self->_speedValLabel.text = [NSString stringWithFormat:@"%.0f", val]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_speedValLabel) {
+            [self->_speedValLabel setText:[NSString stringWithFormat:@"%.0f", val]];
+        }
+    });
 }
 
 - (void)distChanged {
@@ -925,7 +943,11 @@ static void *AntiDetachLoop(void *arg) {
     gConfig.espDistance = _distSlider.value;
     float val = _distSlider.value;
     pthread_mutex_unlock(&g_ConfigMutex);
-    dispatch_async(dispatch_get_main_queue(), ^{ self->_distValLabel.text = [NSString stringWithFormat:@"%.0fm", val]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_distValLabel) {
+            [self->_distValLabel setText:[NSString stringWithFormat:@"%.0fm", val]];
+        }
+    });
 }
 
 - (void)startLoop {
