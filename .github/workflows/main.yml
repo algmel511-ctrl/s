@@ -5,15 +5,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install ldid (Signing Tool)
+        run: |
+          brew install ldid
+          
       - name: Setup Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
           echo "THEOS=~/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
+          
       - name: Build
         run: |
           make clean
           make
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
