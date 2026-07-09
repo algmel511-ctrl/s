@@ -1,6 +1,6 @@
 // ====================================================================
-// RavFen Shadow v5.3 - PUBG Mobile 4.4.0 iOS Tweak
-// Floating Button + Aimbot Speed 150 + ESP ثابت
+// RavFen Shadow v5.4 - PUBG Mobile 4.4.0 iOS Tweak
+// تم إصلاح Retain Cycle في Floating Button
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -186,7 +186,7 @@ static float g_LocalX = 0, g_LocalY = 0, g_LocalZ = 0;
 @end
 
 // ====================================================================
-// 👥 GetPlayers - ✅ ESP يشتغل الآن
+// 👥 GetPlayers
 // ====================================================================
 static NSArray<PlayerData *> *GetPlayers(void) {
     NSMutableArray *result = [NSMutableArray array];
@@ -204,7 +204,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
     int32_t count   = ReadInt(level + OFF(OFF_AC));
     if (!actors || count <= 0 || count > 1000) return result;
     
-    // اللاعب المحلي
     uint64_t gi     = ReadPtr(gw + OFF(OFF_GI));
     uint64_t lpArr  = ReadPtr(gi + OFF(OFF_LP));
     uint64_t lp     = ReadPtr(lpArr);
@@ -222,7 +221,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
                 g_LocalY = ReadFloat(ctw + 0x14);
                 g_LocalZ = ReadFloat(ctw + 0x18);
             } else {
-                // Fallback لـ RelativeLocation
                 g_LocalX = ReadFloat(root + OFF(OFF_RL));
                 g_LocalY = ReadFloat(root + OFF(OFF_RL) + 4);
                 g_LocalZ = ReadFloat(root + OFF(OFF_RL) + 8);
@@ -239,8 +237,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
         @autoreleasepool {
             uint64_t actor = ReadPtr(actors + i * 8);
             if (!actor || actor == localPawn) continue;
-            
-            // ✅ IsPlayer تتأكد إنه لاعب وليس Item/Drop
             if (!IsPlayer(actor)) continue;
             
             uint64_t root = ReadPtr(actor + OFF(OFF_RC));
@@ -277,7 +273,6 @@ static NSArray<PlayerData *> *GetPlayers(void) {
             p.distance = dist;
             p.isAlive  = (hp > 0.1f);
             p.teamId   = team;
-            // ✅ العدو: team مختلف أو team == 0 (غير معروف)
             p.isEnemy  = (team != localTeam) || (team == 0);
             p.meshAddr = mesh;
             if (mesh) p.boneAddr = ReadPtr(mesh + OFF(OFF_BA));
@@ -289,7 +284,7 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 Aimbot - سرعة 150
+// 🎯 Aimbot
 // ====================================================================
 static void DoAimbot(void) {
     BOOL enabled = NO;
@@ -339,7 +334,6 @@ static void DoAimbot(void) {
     float curPitch = ReadFloat(crAddr);
     float curYaw   = ReadFloat(crAddr + 4);
     
-    // ✅ Speed: 1-150, نحولها إلى factor (0.01 - 1.0)
     float factor = speed / 150.0f;
     if (factor > 1.0f) factor = 1.0f;
     if (factor < 0.01f) factor = 0.01f;
@@ -469,7 +463,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 🔘 Floating Button - يتحرك، إذا ضغطته تظهر القائمة
+// 🔘 Floating Button
 // ====================================================================
 @interface RavFloatingButton : UIView {
     UILabel *_label;
@@ -484,7 +478,6 @@ static void *AntiDetachLoop(void *arg) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        // خلفية شفافة مع ظل خفيف
         self.backgroundColor = [UIColor colorWithRed:0.5 green:0.0 blue:1.0 alpha:0.25];
         self.layer.cornerRadius = frame.size.width / 2;
         self.layer.borderWidth = 1.0;
@@ -495,16 +488,13 @@ static void *AntiDetachLoop(void *arg) {
         self.layer.shadowRadius = 6;
         self.layer.shadowOffset = CGSizeMake(0, 2);
         
-        // 🩸 رمز الدم (نقطة حمراء)
         _dropImage = [[UIImageView alloc] init];
-        // بدل UIImage نستخدم UILabel للدم
         _dropImage.frame = CGRectMake(6, 5, frame.size.width - 12, frame.size.height - 12);
         _dropImage.layer.cornerRadius = (frame.size.width - 12) / 2;
         _dropImage.backgroundColor = [UIColor colorWithRed:0.6 green:0.0 blue:0.0 alpha:0.5];
         _dropImage.clipsToBounds = YES;
         [self addSubview:_dropImage];
         
-        // النص "RavFen"
         _label = [[UILabel alloc] init];
         _label.text = @"R";
         _label.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.9];
@@ -515,11 +505,9 @@ static void *AntiDetachLoop(void *arg) {
         _label.shadowOffset = CGSizeMake(1, 1);
         [self addSubview:_label];
         
-        // ✅ السحب (Drag)
         _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         [self addGestureRecognizer:_pan];
         
-        // ✅ الضغط (Tap)
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap)];
         [self addGestureRecognizer:tap];
     }
@@ -535,7 +523,6 @@ static void *AntiDetachLoop(void *arg) {
     center.x += translation.x;
     center.y += translation.y;
     
-    // حدود الشاشة
     CGFloat halfW = self.bounds.size.width / 2;
     CGFloat halfH = self.bounds.size.height / 2;
     center.x = MAX(halfW, MIN(superview.bounds.size.width - halfW, center.x));
@@ -588,13 +575,12 @@ static void *AntiDetachLoop(void *arg) {
     CGFloat w = self.bounds.size.width - 30, x = 15, y = 20, mw = self.bounds.size.width;
     
     UILabel *header = [[UILabel alloc] initWithFrame:CGRectMake(20, y, w, 28)];
-    header.text = @"RavFen Shadow v5.3";
+    header.text = @"RavFen Shadow v5.4";
     header.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
     header.font = [UIFont boldSystemFontOfSize:20];
     header.textAlignment = NSTextAlignmentCenter;
     [self addSubview:header];
     
-    // زر إخفاء مؤقت (بدل Close)
     UIButton *hideBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     hideBtn.frame = CGRectMake(mw - 42, 8, 32, 32);
     hideBtn.backgroundColor = [UIColor colorWithRed:0.3 green:0.0 blue:0.0 alpha:0.5];
@@ -610,7 +596,6 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:line1];
     y += 12;
     
-    // Aimbot
     UILabel *secAim = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
     secAim.text = @"Aimbot"; secAim.textColor = [UIColor whiteColor];
     secAim.font = [UIFont boldSystemFontOfSize:16]; [self addSubview:secAim];
@@ -632,9 +617,7 @@ static void *AntiDetachLoop(void *arg) {
     y += 18;
     
     _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(15, y, w, 28)];
-    _speedSlider.minimumValue = 1;
-    _speedSlider.maximumValue = 150;
-    _speedSlider.value = 75;
+    _speedSlider.minimumValue = 1; _speedSlider.maximumValue = 150; _speedSlider.value = 75;
     _speedSlider.tintColor = [UIColor purpleColor];
     [_speedSlider addTarget:self action:@selector(speedChanged) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_speedSlider];
@@ -660,7 +643,6 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:line2];
     y += 10;
     
-    // ESP
     UILabel *secEsp = [[UILabel alloc] initWithFrame:CGRectMake(15, y, 150, 22)];
     secEsp.text = @"ESP"; secEsp.textColor = [UIColor whiteColor];
     secEsp.font = [UIFont boldSystemFontOfSize:16]; [self addSubview:secEsp];
@@ -697,7 +679,7 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:_playerCountLabel];
 }
 
-// ✅ Hide Menu (يخفي القائمة ويرجع الفلوتينق)
+// ✅ Hide Menu - يرجع الفلوتينق
 - (void)hideMenu {
     pthread_mutex_lock(&g_ConfigMutex);
     gConfig.menuVisible = NO;
@@ -710,7 +692,6 @@ static void *AntiDetachLoop(void *arg) {
     } completion:^(BOOL f) {
         [self removeFromSuperview];
         
-        // إظهار الفلوتينق بوتن
         dispatch_async(dispatch_get_main_queue(), ^{
             UIWindow *key = nil;
             for (UIWindowScene *scene in [UIApplication sharedApplication].connectedScenes) {
@@ -720,7 +701,6 @@ static void *AntiDetachLoop(void *arg) {
             }
             if (!key) return;
             
-            // نتأكد ما في فلوتينق موجود
             for (UIView *v in key.subviews) {
                 if ([v isKindOfClass:[RavFloatingButton class]]) return;
             }
@@ -731,11 +711,14 @@ static void *AntiDetachLoop(void *arg) {
             
             RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, btnSize, btnSize)];
             fb.alpha = 0;
+            
+            // ✅ المكان الأول - تم إصلاح Retain Cycle
+            __weak typeof(fb) weakFb = fb;
             fb.onTap = ^{
-                // إخفاء الفلوتينق وإظهار القائمة
-                [fb removeFromSuperview];
+                [weakFb removeFromSuperview];
                 [self showMenuAgain];
             };
+            
             [key addSubview:fb];
             [key bringSubviewToFront:fb];
             
@@ -851,7 +834,6 @@ static void LaunchRavFen(void) {
         }
         if (!key) return;
         
-        // 1. Splash
         RavSplashView *splash = [[RavSplashView alloc] initWithFrame:key.bounds];
         [key addSubview:splash];
         [key bringSubviewToFront:splash];
@@ -862,20 +844,20 @@ static void LaunchRavFen(void) {
             completion:^(BOOL f) {
                 [splash removeFromSuperview];
                 
-                // 2. Captcha
                 RavCaptchaView *captcha = [[RavCaptchaView alloc] initWithFrame:key.bounds];
                 captcha.onDone = ^{
-                    // 3. بعد الكابتشا → فلوتينق بوتن مباشرة
                     CGFloat btnSize = 45;
                     CGFloat fx = key.bounds.size.width - btnSize - 15;
                     CGFloat fy = key.bounds.size.height * 0.55;
                     
                     RavFloatingButton *fb = [[RavFloatingButton alloc] initWithFrame:CGRectMake(fx, fy, btnSize, btnSize)];
                     fb.alpha = 0;
+                    
+                    // ✅ المكان الثاني - تم إصلاح Retain Cycle
+                    __weak typeof(fb) weakFb = fb;
                     fb.onTap = ^{
-                        [fb removeFromSuperview];
+                        [weakFb removeFromSuperview];
                         
-                        // إظهار القائمة
                         CGFloat mw = 290, mh = 380;
                         CGFloat mx = (key.bounds.size.width - mw) / 2;
                         CGFloat my = (key.bounds.size.height - mh) / 2;
@@ -923,11 +905,11 @@ static void Init(void) {
     
     pthread_mutex_lock(&g_ConfigMutex);
     gConfig.aimbotEnabled = YES;
-    gConfig.aimbotSpeed = 75.0f; // سرعة متوسطة
+    gConfig.aimbotSpeed = 75.0f;
     gConfig.aimbotBone = 0;
     gConfig.espEnabled = YES;
     gConfig.espDistance = 150.0f;
-    gConfig.menuVisible = NO; // تبدأ مخفية، الفلوتينق يظهر
+    gConfig.menuVisible = NO;
     pthread_mutex_unlock(&g_ConfigMutex);
     
     pthread_t th;
