@@ -1,4 +1,4 @@
-// ====================================================================
+a// ====================================================================
 // RavFen Shadow v7.0 - PUBG Mobile 4.5.0 iOS Tweak
 // Anti-Ban | Syscall RW | Randomized Loop | Pattern Scanner Ready
 // ====================================================================
@@ -11,6 +11,8 @@
 #import <math.h>
 #import <sys/syscall.h>
 #import <unistd.h>
+#import <sys/sysctl.h>
+#import <sys/types.h>
 
 // ====================================================================
 // 📍 Syscall-based Memory R/W (Anti-Detection)
@@ -306,26 +308,56 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 AntiBan - Crash before ban
+// 🎯 AntiBan - Crash before ban + Auto shutdown on detection
 // ====================================================================
+static BOOL isInLobby = YES;
+static int detectionCounter = 0;
+
 static void AntiBanCheck(void) {
-    // Check for common detection vectors
+    // تجنب العمليات المشبوهة أثناء اللوبي
+    if (isInLobby) return;
+    
+    // Random interval check (every 20-60 seconds)
     static int checkCount = 0;
     checkCount++;
+    if (checkCount % ((arc4random() % 3000) + 2000) != 0) return;
     
-    // Random interval check (every 30-60 seconds)
-    if (checkCount % ((arc4random() % 2000) + 2000) == 0) {
-        // Check debugger
-        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
-        struct kinfo_proc info;
-        size_t size = sizeof(info);
-        if (sysctl(mib, 4, &info, &size, NULL, 0) == 0) {
-            if (info.kp_proc.p_flag & P_TRACED) {
-                // Debugger detected - crash immediately
+    // Check debugger using sysctl
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    struct kinfo_proc info;
+    size_t size = sizeof(info);
+    if (sysctl(mib, 4, &info, &size, NULL, 0) == 0) {
+        if (info.kp_proc.p_flag & P_TRACED) {
+            detectionCounter++;
+            if (detectionCounter >= 3) {
+                // Multiple detections - crash immediately
                 __asm__ volatile("mov x0, #0; str x0, [x0]");
             }
+        } else {
+            detectionCounter = 0;
         }
     }
+    
+    // Integrity check - verify our own code
+    static uint64_t ourBase = 0;
+    if (ourBase == 0) ourBase = GetBaseAddress();
+    uint64_t currentBase = (uint64_t)_dyld_get_image_header(0);
+    if (currentBase != ourBase) {
+        // Base address changed - possible detection
+        __asm__ volatile("mov x0, #0; str x0, [x0]");
+    }
+}
+
+// Update lobby status based on actor count
+static void UpdateLobbyStatus(void) {
+    uint64_t base = GetBaseAddress();
+    uint64_t gw = ReadPtr(base + OFF(OFF_GW));
+    if (!gw) { isInLobby = YES; return; }
+    uint64_t level = ReadPtr(gw + OFF(OFF_PL));
+    if (!level) { isInLobby = YES; return; }
+    int32_t count = ReadInt(level + OFF(OFF_AC));
+    // If actor count is very low (less than 10), we're probably in lobby
+    isInLobby = (count < 10);
 }
 
 // ====================================================================
@@ -335,6 +367,9 @@ static BOOL isFiring = NO;
 static BOOL isScoping = NO;
 
 static void DoAimbot(NSArray<PlayerData *> *players) {
+    // لا تقرأ/تكتب أثناء اللوبي
+    if (isInLobby) return;
+    
     BOOL enabled = NO; float speed = 5.0f; AimbotMode mode = AimbotMode_None;
     pthread_mutex_lock(&g_ConfigMutex);
     enabled = gConfig.aimbotEnabled; speed = gConfig.aimbotSpeed; mode = gConfig.aimbotMode;
@@ -418,7 +453,7 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
 static void SetFPS120(void) {
     BOOL enabled = NO;
     pthread_mutex_lock(&g_ConfigMutex); enabled = gConfig.fps120Enabled; pthread_mutex_unlock(&g_ConfigMutex);
-    if (!enabled) return;
+    if (!enabled || isInLobby) return;
     uint64_t base = GetBaseAddress();
     static uint64_t frameRateAddr = 0;
     static dispatch_once_t onceToken;
@@ -436,7 +471,7 @@ static void SetFPS120(void) {
 }
 
 // ====================================================================
-// 🖥️ Anti-Detach (Low CPU)
+// 🖥️ Anti-Detach (Low CPU + Randomized intervals)
 // ====================================================================
 static void *AntiDetachLoop(void *arg) {
     char *ourName = NULL;
@@ -452,6 +487,7 @@ static void *AntiDetachLoop(void *arg) {
             const char *name = _dyld_get_image_name(i);
             if (name && strcmp(name, ourName) == 0) { found = YES; break; }
         }
+        // Randomized sleep intervals
         usleep(found ? (arc4random()%3000000+5000000) : (arc4random()%500000+1000000));
     }
     free(ourName);
@@ -607,7 +643,7 @@ static void *AntiDetachLoop(void *arg) {
 - (void)mCh { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotMode = (AimbotMode)(_ms.selectedSegmentIndex + 1); pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)sCh { pthread_mutex_lock(&g_ConfigMutex);gConfig.aimbotSpeed=_ss.value;float v=_ss.value;pthread_mutex_unlock(&g_ConfigMutex); dispatch_async(dispatch_get_main_queue(),^{[_sv setText:[NSString stringWithFormat:@"%.0f",v]];}); }
 - (void)dCh { pthread_mutex_lock(&g_ConfigMutex);gConfig.espDistance=_ds.value;float v=_ds.value;pthread_mutex_unlock(&g_ConfigMutex); dispatch_async(dispatch_get_main_queue(),^{[_dv setText:[NSString stringWithFormat:@"%.0fm",v]];}); }
-- (void)loop { __weak typeof(self) ws=self; _t=[NSTimer scheduledTimerWithTimeInterval:(0.014+(arc4random()%4)*0.001) repeats:YES block:^(NSTimer *t){ typeof(self) ss=ws; if(!ss){[t invalidate];return;} dispatch_async(ss->_q,^{ AntiBanCheck(); NSArray *p=GetPlayers(); DoAimbot(p); [ss->_ev updateWithPlayers:p]; int c=0;for(PlayerData *pp in p){if(pp.isEnemy&&pp.isAlive)c++;} dispatch_async(dispatch_get_main_queue(),^{[ss->_pc setText:[NSString stringWithFormat:@"Players: %d",c]];}); }); }]; [[NSRunLoop mainRunLoop] addTimer:_t forMode:NSRunLoopCommonModes]; }
+- (void)loop { __weak typeof(self) ws=self; _t=[NSTimer scheduledTimerWithTimeInterval:(0.014+(arc4random()%4)*0.001) repeats:YES block:^(NSTimer *t){ typeof(self) ss=ws; if(!ss){[t invalidate];return;} dispatch_async(ss->_q,^{ UpdateLobbyStatus(); AntiBanCheck(); NSArray *p=GetPlayers(); DoAimbot(p); [ss->_ev updateWithPlayers:p]; int c=0;for(PlayerData *pp in p){if(pp.isEnemy&&pp.isAlive)c++;} dispatch_async(dispatch_get_main_queue(),^{[ss->_pc setText:[NSString stringWithFormat:@"Players: %d",c]];}); }); }]; [[NSRunLoop mainRunLoop] addTimer:_t forMode:NSRunLoopCommonModes]; }
 - (void)dealloc { [_t invalidate]; }
 @end
 
