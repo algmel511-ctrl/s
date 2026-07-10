@@ -1,21 +1,21 @@
-a// ====================================================================
+// ====================================================================
 // RavFen Shadow v7.0 - PUBG Mobile 4.5.0 iOS Tweak
-// Anti-Ban | Syscall RW | Randomized Loop | Pattern Scanner Ready
+// Anti-Ban | Human-like Aimbot | ESP | 120 FPS | Menu
+// يعمل على جميع الأجهزة (بدون جلبريك عند حقنه في IPA)
 // ====================================================================
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
+#import <mach/mach_vm.h>
 #import <pthread.h>
 #import <dlfcn.h>
 #import <math.h>
-#import <sys/syscall.h>
-#import <unistd.h>
 #import <sys/sysctl.h>
 #import <sys/types.h>
 
 // ====================================================================
-// 📍 Syscall-based Memory R/W (Anti-Detection)
+// 📍 Secure Memory R/W (mach_vm)
 // ====================================================================
 static uint64_t gBase = 0;
 static inline uint64_t GetBaseAddress(void) {
@@ -23,29 +23,21 @@ static inline uint64_t GetBaseAddress(void) {
     return gBase;
 }
 
-// استخدام syscalls مباشرة بدل memcpy لتجنب الـ hooks
 static BOOL ReadMem(uint64_t addr, void *buf, size_t sz) {
-    if (!addr || !buf || sz == 0) return NO;
-    if (addr < 0x100000000ULL || addr > 0x7FFFFFFFFFFFULL) return NO;
-    // استخدام syscall مباشر بدل memcpy
-    ssize_t result = syscall(SYS_write, 0, addr, buf, sz);
-    if (result != sz) {
-        // Fallback to memcpy if syscall fails
-        memcpy(buf, (const void *)addr, sz);
-    }
-    return YES;
+    if (!addr || !buf) return NO;
+    mach_vm_size_t outsize = 0;
+    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)addr, sz, (mach_vm_address_t)buf, &outsize);
+    return kr == KERN_SUCCESS;
 }
 
 static BOOL WriteMem(uint64_t addr, const void *buf, size_t sz) {
-    if (!addr || !buf || sz == 0) return NO;
-    if (addr < 0x100000000ULL || addr > 0x7FFFFFFFFFFFULL) return NO;
-    // استخدام mach_vm_write عبر syscall
-    memcpy((void *)addr, buf, sz);
-    return YES;
+    if (!addr || !buf) return NO;
+    kern_return_t kr = mach_vm_write(mach_task_self(), (mach_vm_address_t)addr, (vm_offset_t)buf, (mach_msg_type_number_t)sz);
+    return kr == KERN_SUCCESS;
 }
 
 // ====================================================================
-// 🧵 Randomized Mutex
+// 🧵 Config & Mutex
 // ====================================================================
 static pthread_mutex_t g_ConfigMutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -71,7 +63,7 @@ typedef struct {
 static RavConfig gConfig = {0};
 
 // ====================================================================
-// 🔐 Obfuscated Offsets
+// 🔐 Offsets (XOR encoded, extracted for 4.5.0)
 // ====================================================================
 enum {
     OFF_GW, OFF_GN, OFF_PL, OFF_AA, OFF_AC, OFF_GI, OFF_LP,
@@ -85,7 +77,6 @@ static uint64_t gOffsets[OFF_COUNT] = {0};
 static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        // XOR encoded offsets
         uint64_t enc[] = {
             0xA5A5A5A5A5A5A970, 0xA5A5A5A5A5A5A598, 
             0xA5A5A5A5A5A5AAF0, 0xA5A5A5A5A5A5A580,
@@ -99,16 +90,14 @@ static void InitOffsets(void) {
             0xA5A5A5A5A5A5A500,
         };
         uint64_t key = 0xA5A5A5A5A5A5A5A5ULL;
-        for (int i = 0; i < OFF_COUNT; i++) {
-            gOffsets[i] = enc[i] ^ key;
-        }
+        for (int i = 0; i < OFF_COUNT; i++) gOffsets[i] = enc[i] ^ key;
     });
 }
 
 #define OFF(x) gOffsets[x]
 
 // ====================================================================
-// 📍 القراءة السريعة
+// 📍 Memory Reading Functions
 // ====================================================================
 static uint64_t ReadPtr(uint64_t addr) {
     uint64_t val = 0;
@@ -135,7 +124,7 @@ static int32_t ReadInt(uint64_t addr) {
 static BOOL WriteFloat(uint64_t addr, float val) {
     if (!addr) return NO;
     float cur = ReadFloat(addr);
-    if (fabsf(cur - val) < 0.001f) return YES; // Skip if already set
+    if (fabsf(cur - val) < 0.001f) return YES;
     return WriteMem(addr, &val, 4);
 }
 
@@ -165,31 +154,27 @@ static BOOL IsPlayer(uint64_t actor) {
     if (!ReadMem(entry + 8, name, 20)) return NO;
     name[20] = '\0';
     
-    // XOR obfuscated strings
-    char p1[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x50^0x21, 0x61^0x21, 0x77^0x21, 0x6E^0x21, 0}; // PlayerPawn
-    char p2[] = {0x42^0x21, 0x50^0x21, 0x5F^0x21, 0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0}; // BP_Player
-    char p3[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x43^0x21, 0x68^0x21, 0x61^0x21, 0x72^0x21, 0x61^0x21, 0x63^0x21, 0x74^0x21, 0x65^0x21, 0x72^0x21, 0}; // PlayerCharacter
-    char p4[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x4D^0x21, 0x61^0x21, 0x6C^0x21, 0x65^0x21, 0}; // PlayerMale
-    char p5[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x46^0x21, 0x65^0x21, 0x6D^0x21, 0x61^0x21, 0x6C^0x21, 0x65^0x21, 0}; // PlayerFemale
-    
-    for (int i = 0; p1[i]; i++) p1[i] ^= 0x21;
-    for (int i = 0; p2[i]; i++) p2[i] ^= 0x21;
-    for (int i = 0; p3[i]; i++) p3[i] ^= 0x21;
-    for (int i = 0; p4[i]; i++) p4[i] ^= 0x21;
-    for (int i = 0; p5[i]; i++) p5[i] ^= 0x21;
+    char p1[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x50^0x21, 0x61^0x21, 0x77^0x21, 0x6E^0x21, 0};
+    char p2[] = {0x42^0x21, 0x50^0x21, 0x5F^0x21, 0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0};
+    char p3[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x43^0x21, 0x68^0x21, 0x61^0x21, 0x72^0x21, 0x61^0x21, 0x63^0x21, 0x74^0x21, 0x65^0x21, 0x72^0x21, 0};
+    char p4[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x4D^0x21, 0x61^0x21, 0x6C^0x21, 0x65^0x21, 0};
+    char p5[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x46^0x21, 0x65^0x21, 0x6D^0x21, 0x61^0x21, 0x6C^0x21, 0x65^0x21, 0};
+    for (int i=0; p1[i]; i++) p1[i] ^= 0x21;
+    for (int i=0; p2[i]; i++) p2[i] ^= 0x21;
+    for (int i=0; p3[i]; i++) p3[i] ^= 0x21;
+    for (int i=0; p4[i]; i++) p4[i] ^= 0x21;
+    for (int i=0; p5[i]; i++) p5[i] ^= 0x21;
     
     if (strstr(name, p1) || strstr(name, p2) || strstr(name, p3) || strstr(name, p4) || strstr(name, p5)) {
-        char b1[] = {0x50^0x42, 0x69^0x42, 0x63^0x42, 0x6B^0x42, 0x75^0x42, 0x70^0x42, 0}; // Pickup
-        char b2[] = {0x44^0x42, 0x72^0x42, 0x6F^0x42, 0x70^0x42, 0x70^0x42, 0x65^0x42, 0x64^0x42, 0}; // Dropped
-        char b3[] = {0x49^0x42, 0x74^0x42, 0x65^0x42, 0x6D^0x42, 0}; // Item
-        char b4[] = {0x57^0x42, 0x65^0x42, 0x61^0x42, 0x70^0x42, 0x6F^0x42, 0x6E^0x42, 0}; // Weapon
-        for (int i = 0; b1[i]; i++) b1[i] ^= 0x42;
-        for (int i = 0; b2[i]; i++) b2[i] ^= 0x42;
-        for (int i = 0; b3[i]; i++) b3[i] ^= 0x42;
-        for (int i = 0; b4[i]; i++) b4[i] ^= 0x42;
-        if (!strstr(name, b1) && !strstr(name, b2) && !strstr(name, b3) && !strstr(name, b4)) {
-            return YES;
-        }
+        char b1[] = {0x50^0x42, 0x69^0x42, 0x63^0x42, 0x6B^0x42, 0x75^0x42, 0x70^0x42, 0};
+        char b2[] = {0x44^0x42, 0x72^0x42, 0x6F^0x42, 0x70^0x42, 0x70^0x42, 0x65^0x42, 0x64^0x42, 0};
+        char b3[] = {0x49^0x42, 0x74^0x42, 0x65^0x42, 0x6D^0x42, 0};
+        char b4[] = {0x57^0x42, 0x65^0x42, 0x61^0x42, 0x70^0x42, 0x6F^0x42, 0x6E^0x42, 0};
+        for (int i=0; b1[i]; i++) b1[i] ^= 0x42;
+        for (int i=0; b2[i]; i++) b2[i] ^= 0x42;
+        for (int i=0; b3[i]; i++) b3[i] ^= 0x42;
+        for (int i=0; b4[i]; i++) b4[i] ^= 0x42;
+        if (!strstr(name, b1) && !strstr(name, b2) && !strstr(name, b3) && !strstr(name, b4)) return YES;
     }
     return NO;
 }
@@ -308,47 +293,11 @@ static NSArray<PlayerData *> *GetPlayers(void) {
 }
 
 // ====================================================================
-// 🎯 AntiBan - Crash before ban + Auto shutdown on detection
+// 🛡️ Anti-Ban & Lobby Detection
 // ====================================================================
 static BOOL isInLobby = YES;
 static int detectionCounter = 0;
 
-static void AntiBanCheck(void) {
-    // تجنب العمليات المشبوهة أثناء اللوبي
-    if (isInLobby) return;
-    
-    // Random interval check (every 20-60 seconds)
-    static int checkCount = 0;
-    checkCount++;
-    if (checkCount % ((arc4random() % 3000) + 2000) != 0) return;
-    
-    // Check debugger using sysctl
-    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
-    struct kinfo_proc info;
-    size_t size = sizeof(info);
-    if (sysctl(mib, 4, &info, &size, NULL, 0) == 0) {
-        if (info.kp_proc.p_flag & P_TRACED) {
-            detectionCounter++;
-            if (detectionCounter >= 3) {
-                // Multiple detections - crash immediately
-                __asm__ volatile("mov x0, #0; str x0, [x0]");
-            }
-        } else {
-            detectionCounter = 0;
-        }
-    }
-    
-    // Integrity check - verify our own code
-    static uint64_t ourBase = 0;
-    if (ourBase == 0) ourBase = GetBaseAddress();
-    uint64_t currentBase = (uint64_t)_dyld_get_image_header(0);
-    if (currentBase != ourBase) {
-        // Base address changed - possible detection
-        __asm__ volatile("mov x0, #0; str x0, [x0]");
-    }
-}
-
-// Update lobby status based on actor count
 static void UpdateLobbyStatus(void) {
     uint64_t base = GetBaseAddress();
     uint64_t gw = ReadPtr(base + OFF(OFF_GW));
@@ -356,20 +305,45 @@ static void UpdateLobbyStatus(void) {
     uint64_t level = ReadPtr(gw + OFF(OFF_PL));
     if (!level) { isInLobby = YES; return; }
     int32_t count = ReadInt(level + OFF(OFF_AC));
-    // If actor count is very low (less than 10), we're probably in lobby
     isInLobby = (count < 10);
 }
 
+static void AntiBanCheck(void) {
+    if (isInLobby) return;
+    static int checkCount = 0;
+    checkCount++;
+    if (checkCount % ((arc4random() % 3000) + 2000) != 0) return;
+    
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    struct kinfo_proc info;
+    size_t size = sizeof(info);
+    if (sysctl(mib, 4, &info, &size, NULL, 0) == 0) {
+        if (info.kp_proc.p_flag & P_TRACED) {
+            detectionCounter++;
+            if (detectionCounter >= 3) {
+                // Crash immediately
+                __asm__ volatile("mov x0, #0; str x0, [x0]");
+            }
+        } else {
+            detectionCounter = 0;
+        }
+    }
+    
+    static uint64_t ourBase = 0;
+    if (ourBase == 0) ourBase = GetBaseAddress();
+    if ((uint64_t)_dyld_get_image_header(0) != ourBase) {
+        __asm__ volatile("mov x0, #0; str x0, [x0]");
+    }
+}
+
 // ====================================================================
-// 🎯 Aimbot with Human-like behavior
+// 🎯 Human-like Aimbot
 // ====================================================================
 static BOOL isFiring = NO;
 static BOOL isScoping = NO;
 
 static void DoAimbot(NSArray<PlayerData *> *players) {
-    // لا تقرأ/تكتب أثناء اللوبي
     if (isInLobby) return;
-    
     BOOL enabled = NO; float speed = 5.0f; AimbotMode mode = AimbotMode_None;
     pthread_mutex_lock(&g_ConfigMutex);
     enabled = gConfig.aimbotEnabled; speed = gConfig.aimbotSpeed; mode = gConfig.aimbotMode;
@@ -394,19 +368,14 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
     if (!best) return;
     
     uint64_t base = GetBaseAddress();
-    uint64_t gw = ReadPtr(base + OFF(OFF_GW));
-    if (!gw) return;
-    uint64_t gi = ReadPtr(gw + OFF(OFF_GI));
-    if (!gi) return;
-    uint64_t lpArr = ReadPtr(gi + OFF(OFF_LP));
-    if (!lpArr) return;
-    uint64_t lp = ReadPtr(lpArr);
-    if (!lp) return;
-    uint64_t pc = ReadPtr(lp + OFF(OFF_PC));
-    if (!pc) return;
+    uint64_t gw = ReadPtr(base + OFF(OFF_GW)); if (!gw) return;
+    uint64_t gi = ReadPtr(gw + OFF(OFF_GI)); if (!gi) return;
+    uint64_t lpArr = ReadPtr(gi + OFF(OFF_LP)); if (!lpArr) return;
+    uint64_t lp = ReadPtr(lpArr); if (!lp) return;
+    uint64_t pc = ReadPtr(lp + OFF(OFF_PC)); if (!pc) return;
     
     float camX = g_LocalX, camY = g_LocalY, camZ = g_LocalZ;
-    float targetH = 1.75f + ((arc4random() % 10) / 100.0f); // Small random head offset
+    float targetH = 1.75f + ((arc4random() % 10) / 100.0f);
     float tz = best.z + targetH;
     
     float dx = best.x - camX, dy = best.y - camY, dz = tz - camZ;
@@ -416,7 +385,6 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
     if (pitch > 89.0f) pitch = 89.0f;
     if (pitch < -89.0f) pitch = -89.0f;
     
-    // Add human-like jitter
     float jitterX = ((arc4random() % 100) - 50) / 500.0f;
     float jitterY = ((arc4random() % 100) - 50) / 500.0f;
     yaw += jitterX; pitch += jitterY;
@@ -424,7 +392,6 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
     uint64_t crAddr = pc + OFF(OFF_CR);
     float curPitch = ReadFloat(crAddr), curYaw = ReadFloat(crAddr + 4);
     
-    // Distance-based dynamic smoothing
     float dist = best.distance;
     float factor;
     if (speed <= 50.0f) {
@@ -448,7 +415,7 @@ static void DoAimbot(NSArray<PlayerData *> *players) {
 }
 
 // ====================================================================
-// 120 FPS Engine
+// ⚡ 120 FPS
 // ====================================================================
 static void SetFPS120(void) {
     BOOL enabled = NO;
@@ -471,7 +438,7 @@ static void SetFPS120(void) {
 }
 
 // ====================================================================
-// 🖥️ Anti-Detach (Low CPU + Randomized intervals)
+// 🖥️ Anti-Detach
 // ====================================================================
 static void *AntiDetachLoop(void *arg) {
     char *ourName = NULL;
@@ -487,7 +454,6 @@ static void *AntiDetachLoop(void *arg) {
             const char *name = _dyld_get_image_name(i);
             if (name && strcmp(name, ourName) == 0) { found = YES; break; }
         }
-        // Randomized sleep intervals
         usleep(found ? (arc4random()%3000000+5000000) : (arc4random()%500000+1000000));
     }
     free(ourName);
@@ -495,7 +461,7 @@ static void *AntiDetachLoop(void *arg) {
 }
 
 // ====================================================================
-// 🎨 ESP Overlay View
+// 🎨 ESP Overlay
 // ====================================================================
 @interface ESPOverlayView : UIView
 @property (nonatomic, strong) CAShapeLayer *boxLayer, *lineLayer, *bulletLineLayer;
@@ -599,14 +565,11 @@ static void *AntiDetachLoop(void *arg) {
     }return self;
 }
 - (void)ui { CGFloat w=self.bounds.size.width-28,mw=self.bounds.size.width,y=16;
-    // Telegram
     UIButton *tg=[UIButton buttonWithType:UIButtonTypeSystem]; tg.frame=CGRectMake(14,y,mw-28,36); [tg setTitle:@"📢 قناة التيلجرام - اضغط هنا" forState:UIControlStateNormal]; [tg setTitleColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] forState:UIControlStateNormal]; tg.titleLabel.font=[UIFont boldSystemFontOfSize:13]; tg.backgroundColor=[UIColor colorWithRed:0.3 green:0.0 blue:0.5 alpha:0.5]; tg.layer.cornerRadius=10; tg.layer.borderWidth=1; tg.layer.borderColor=[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.5].CGColor; [tg addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside]; [self addSubview:tg]; y+=44;
-    // Header
     UILabel *r=[[UILabel alloc]initWithFrame:CGRectMake(16,y,36,36)];[r setText:@"R"];[r setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[r setFont:[UIFont boldSystemFontOfSize:28]];[r setTextAlignment:NSTextAlignmentCenter];r.backgroundColor=[UIColor colorWithRed:0.3 green:0.0 blue:0.5 alpha:0.5];r.layer.cornerRadius=18;r.clipsToBounds=YES;[self addSubview:r];
     UILabel *t=[[UILabel alloc]initWithFrame:CGRectMake(60,y+2,mw-100,22)];[t setText:@"RAVFEN SHADOW"];[t setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[t setFont:[UIFont boldSystemFontOfSize:16]];[self addSubview:t];
     UIButton *x=[UIButton buttonWithType:UIButtonTypeSystem];x.frame=CGRectMake(mw-40,y+2,28,28);x.backgroundColor=[UIColor colorWithRed:0.4 green:0.0 blue:0.0 alpha:0.7];x.layer.cornerRadius=14;[x setTitle:@"✕" forState:UIControlStateNormal];[x setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];[x addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];[self addSubview:x]; y+=48;
     UIView *gl=[[UIView alloc]initWithFrame:CGRectMake(14,y,w,1)];gl.backgroundColor=[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.5];[self addSubview:gl]; y+=12;
-    // Aimbot
     UILabel *ah=[[UILabel alloc]initWithFrame:CGRectMake(14,y,120,22)];[ah setText:@"🎯 AIMBOT"];[ah setTextColor:[UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0]];[ah setFont:[UIFont boldSystemFontOfSize:14]];[self addSubview:ah];
     _as=[[UISwitch alloc]initWithFrame:CGRectMake(mw-65,y-2,50,24)];_as.onTintColor=[UIColor orangeColor];_as.transform=CGAffineTransformMakeScale(0.8,0.8);[_as addTarget:self action:@selector(tgA) forControlEvents:UIControlEventValueChanged];[self addSubview:_as]; y+=26;
     UILabel *ml=[[UILabel alloc]initWithFrame:CGRectMake(14,y,80,16)];[ml setText:@"Mode:"];[ml setTextColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0]];[ml setFont:[UIFont systemFontOfSize:11]];[self addSubview:ml]; y+=16;
@@ -614,7 +577,6 @@ static void *AntiDetachLoop(void *arg) {
     UILabel *sl=[[UILabel alloc]initWithFrame:CGRectMake(14,y,50,16)];[sl setText:@"Speed"];[sl setTextColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0]];[sl setFont:[UIFont systemFontOfSize:11]];[self addSubview:sl];
     _sv=[[UILabel alloc]initWithFrame:CGRectMake(mw-55,y,45,16)];[_sv setText:@"120"];[_sv setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[_sv setFont:[UIFont boldSystemFontOfSize:11]];[_sv setTextAlignment:NSTextAlignmentRight];[self addSubview:_sv]; y+=16;
     _ss=[[UISlider alloc]initWithFrame:CGRectMake(14,y,w,20)];_ss.minimumValue=1;_ss.maximumValue=150;_ss.value=120;_ss.tintColor=[UIColor orangeColor];[_ss addTarget:self action:@selector(sCh) forControlEvents:UIControlEventValueChanged];[self addSubview:_ss]; y+=28;
-    // ESP
     UIView *pl=[[UIView alloc]initWithFrame:CGRectMake(14,y,w,1)];pl.backgroundColor=[UIColor colorWithRed:0.4 green:0.2 blue:0.6 alpha:0.4];[self addSubview:pl]; y+=8;
     UILabel *eh=[[UILabel alloc]initWithFrame:CGRectMake(14,y,120,22)];[eh setText:@"👁 ESP"];[eh setTextColor:[UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0]];[eh setFont:[UIFont boldSystemFontOfSize:14]];[self addSubview:eh];
     _es=[[UISwitch alloc]initWithFrame:CGRectMake(mw-65,y-2,50,24)];_es.onTintColor=[UIColor cyanColor];_es.transform=CGAffineTransformMakeScale(0.8,0.8);[_es addTarget:self action:@selector(tgE) forControlEvents:UIControlEventValueChanged];[self addSubview:_es]; y+=28;
@@ -625,7 +587,6 @@ static void *AntiDetachLoop(void *arg) {
     UILabel *dl=[[UILabel alloc]initWithFrame:CGRectMake(14,y,60,16)];[dl setText:@"Distance"];[dl setTextColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.8 alpha:1.0]];[dl setFont:[UIFont systemFontOfSize:11]];[self addSubview:dl];
     _dv=[[UILabel alloc]initWithFrame:CGRectMake(mw-55,y,45,16)];[_dv setText:@"200m"];[_dv setTextColor:[UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0]];[_dv setFont:[UIFont boldSystemFontOfSize:11]];[_dv setTextAlignment:NSTextAlignmentRight];[self addSubview:_dv]; y+=16;
     _ds=[[UISlider alloc]initWithFrame:CGRectMake(14,y,w,20)];_ds.minimumValue=50;_ds.maximumValue=350;_ds.value=200;_ds.tintColor=[UIColor greenColor];[_ds addTarget:self action:@selector(dCh) forControlEvents:UIControlEventValueChanged];[self addSubview:_ds]; y+=28;
-    // 120 FPS
     UIView *fl=[[UIView alloc]initWithFrame:CGRectMake(14,y,w,1)];fl.backgroundColor=[UIColor colorWithRed:0.4 green:0.2 blue:0.6 alpha:0.4];[self addSubview:fl]; y+=8;
     UIView *fb=[[UIView alloc]initWithFrame:CGRectMake(14,y,w,36)];fb.backgroundColor=[UIColor colorWithRed:0.08 green:0.08 blue:0.15 alpha:0.8];fb.layer.cornerRadius=8;fb.layer.borderWidth=1;fb.layer.borderColor=[UIColor colorWithRed:0.5 green:0.2 blue:1.0 alpha:0.5].CGColor;[self addSubview:fb];
     UILabel *fpsl=[[UILabel alloc]initWithFrame:CGRectMake(10,8,200,20)];[fpsl setText:@"120 FPS Mode"];[fpsl setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[fpsl setFont:[UIFont boldSystemFontOfSize:14]];[fb addSubview:fpsl];
