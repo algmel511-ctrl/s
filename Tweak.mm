@@ -7,7 +7,6 @@
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
 #import <mach/mach.h>
-#import <mach/mach_vm.h>
 #import <pthread.h>
 #import <dlfcn.h>
 #import <math.h>
@@ -15,7 +14,7 @@
 #import <sys/types.h>
 
 // ====================================================================
-// 📍 Secure Memory R/W (mach_vm)
+// 📍 Base Address
 // ====================================================================
 static uint64_t gBase = 0;
 static inline uint64_t GetBaseAddress(void) {
@@ -23,16 +22,19 @@ static inline uint64_t GetBaseAddress(void) {
     return gBase;
 }
 
+// ====================================================================
+// 📡 Memory R/W using vm_read_overwrite & vm_write (iOS SDK compatible)
+// ====================================================================
 static BOOL ReadMem(uint64_t addr, void *buf, size_t sz) {
     if (!addr || !buf) return NO;
-    mach_vm_size_t outsize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), (mach_vm_address_t)addr, sz, (mach_vm_address_t)buf, &outsize);
+    vm_size_t outsize = 0;
+    kern_return_t kr = vm_read_overwrite(mach_task_self(), (vm_address_t)addr, (vm_size_t)sz, (vm_address_t)buf, &outsize);
     return kr == KERN_SUCCESS;
 }
 
 static BOOL WriteMem(uint64_t addr, const void *buf, size_t sz) {
     if (!addr || !buf) return NO;
-    kern_return_t kr = mach_vm_write(mach_task_self(), (mach_vm_address_t)addr, (vm_offset_t)buf, (mach_msg_type_number_t)sz);
+    kern_return_t kr = vm_write(mach_task_self(), (vm_address_t)addr, (vm_offset_t)buf, (vm_size_t)sz);
     return kr == KERN_SUCCESS;
 }
 
@@ -154,6 +156,7 @@ static BOOL IsPlayer(uint64_t actor) {
     if (!ReadMem(entry + 8, name, 20)) return NO;
     name[20] = '\0';
     
+    // Deobfuscate strings
     char p1[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x50^0x21, 0x61^0x21, 0x77^0x21, 0x6E^0x21, 0};
     char p2[] = {0x42^0x21, 0x50^0x21, 0x5F^0x21, 0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0};
     char p3[] = {0x50^0x21, 0x6C^0x21, 0x61^0x21, 0x79^0x21, 0x65^0x21, 0x72^0x21, 0x43^0x21, 0x68^0x21, 0x61^0x21, 0x72^0x21, 0x61^0x21, 0x63^0x21, 0x74^0x21, 0x65^0x21, 0x72^0x21, 0};
@@ -321,7 +324,6 @@ static void AntiBanCheck(void) {
         if (info.kp_proc.p_flag & P_TRACED) {
             detectionCounter++;
             if (detectionCounter >= 3) {
-                // Crash immediately
                 __asm__ volatile("mov x0, #0; str x0, [x0]");
             }
         } else {
