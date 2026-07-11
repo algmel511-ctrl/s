@@ -582,6 +582,9 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     return l;
 }
 
+// Forward declaration — RavFloatingButton defined later
+@class RavFloatingButton;
+
 // ====================================================================
 // 📋 Menu View — تصميم هيبة جديد كامل
 // ====================================================================
