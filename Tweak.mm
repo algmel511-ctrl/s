@@ -582,8 +582,86 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     return l;
 }
 
-// Forward declaration — RavFloatingButton defined later
-@class RavFloatingButton;
+// ====================================================================
+// 🔵 Floating Button
+// ====================================================================
+@interface RavFloatingButton : UIView
+@property (nonatomic, copy) void (^onTap)(void);
+@end
+
+@implementation RavFloatingButton {
+    UILabel                *_lbl;
+    UIPanGestureRecognizer *_pan;
+    CGFloat                 _angle;
+    NSTimer                *_rot;
+    UILabel                *_tag;
+}
+
+- (instancetype)initWithFrame:(CGRect)f {
+    self = [super initWithFrame:f];
+    if (!self) return nil;
+
+    self.backgroundColor     = [UIColor colorWithRed:0.0 green:0.1 blue:0.22 alpha:0.88];
+    self.layer.cornerRadius  = f.size.width / 2.0;
+    self.layer.borderWidth   = 2.0;
+    self.layer.borderColor   = [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:0.85].CGColor;
+    self.layer.shadowColor   = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0].CGColor;
+    self.layer.shadowRadius  = 10;
+    self.layer.shadowOpacity = 0.7;
+    self.layer.shadowOffset  = CGSizeMake(0, 0);
+
+    _lbl = [[UILabel alloc] initWithFrame:self.bounds];
+    _lbl.text          = @"R";
+    _lbl.textColor     = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
+    _lbl.font          = [UIFont boldSystemFontOfSize:26];
+    _lbl.textAlignment = NSTextAlignmentCenter;
+    _lbl.userInteractionEnabled = NO;
+    [self addSubview:_lbl];
+
+    _tag = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 48, 11)];
+    _tag.text          = @"RavFen";
+    _tag.textColor     = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:0.55];
+    _tag.font          = [UIFont boldSystemFontOfSize:8];
+    _tag.userInteractionEnabled = NO;
+    [self addSubview:_tag];
+
+    _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
+    [self addGestureRecognizer:_pan];
+
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap)];
+    [self addGestureRecognizer:tap];
+    [_pan requireGestureRecognizerToFail:tap];
+
+    _angle = 0;
+    _rot = [NSTimer scheduledTimerWithTimeInterval:0.03
+                                           repeats:YES
+                                             block:^(NSTimer *t) {
+        if (!self.superview) { [t invalidate]; return; }
+        _angle += 0.08;
+        CGFloat r  = 26, cx = self.bounds.size.width / 2.0, cy = self.bounds.size.height / 2.0;
+        _tag.frame = CGRectMake(cx + cosf(_angle) * r - 24, cy + sinf(_angle) * r - 5.5, 48, 11);
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:_rot forMode:NSRunLoopCommonModes];
+
+    return self;
+}
+
+- (void)pan:(UIPanGestureRecognizer *)g {
+    UIView *v = self.superview; if (!v) return;
+    if (g.state == UIGestureRecognizerStateChanged) {
+        CGPoint t = [g translationInView:v];
+        CGPoint c = self.center;
+        c.x += t.x; c.y += t.y;
+        CGFloat r = self.bounds.size.width / 2.0 + 8;
+        c.x = MAX(r, MIN(v.bounds.size.width  - r, c.x));
+        c.y = MAX(r + 44, MIN(v.bounds.size.height - r - 44, c.y));
+        self.center = c;
+        [g setTranslation:CGPointZero inView:v];
+    }
+}
+- (void)tap { if (self.onTap) self.onTap(); }
+
+@end
 
 // ====================================================================
 // 📋 Menu View — تصميم هيبة جديد كامل
@@ -981,86 +1059,6 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// 🔘 Floating Button
-// ====================================================================
-@interface RavFloatingButton : UIView
-@property (nonatomic, copy) void (^onTap)(void);
-@end
-
-@implementation RavFloatingButton {
-    UILabel                *_lbl;
-    UIPanGestureRecognizer *_pan;
-    CGFloat                 _angle;
-    NSTimer                *_rot;
-    UILabel                *_tag;
-}
-
-- (instancetype)initWithFrame:(CGRect)f {
-    self = [super initWithFrame:f];
-    if (!self) return nil;
-
-    self.backgroundColor     = [UIColor colorWithRed:0.0 green:0.1 blue:0.22 alpha:0.88];
-    self.layer.cornerRadius  = f.size.width / 2.0;
-    self.layer.borderWidth   = 2.0;
-    self.layer.borderColor   = [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:0.85].CGColor;
-    self.layer.shadowColor   = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0].CGColor;
-    self.layer.shadowRadius  = 10;
-    self.layer.shadowOpacity = 0.7;
-    self.layer.shadowOffset  = CGSizeMake(0, 0);
-
-    _lbl = [[UILabel alloc] initWithFrame:self.bounds];
-    _lbl.text          = @"R";
-    _lbl.textColor     = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    _lbl.font          = [UIFont boldSystemFontOfSize:26];
-    _lbl.textAlignment = NSTextAlignmentCenter;
-    _lbl.userInteractionEnabled = NO;
-    [self addSubview:_lbl];
-
-    _tag = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 48, 11)];
-    _tag.text          = @"RavFen";
-    _tag.textColor     = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:0.55];
-    _tag.font          = [UIFont boldSystemFontOfSize:8];
-    _tag.userInteractionEnabled = NO;
-    [self addSubview:_tag];
-
-    _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
-    [self addGestureRecognizer:_pan];
-
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap)];
-    [self addGestureRecognizer:tap];
-    [_pan requireGestureRecognizerToFail:tap];
-
-    _angle = 0;
-    _rot = [NSTimer scheduledTimerWithTimeInterval:0.03
-                                           repeats:YES
-                                             block:^(NSTimer *t) {
-        if (!self.superview) { [t invalidate]; return; }
-        _angle += 0.08;
-        CGFloat r  = 26, cx = self.bounds.size.width / 2.0, cy = self.bounds.size.height / 2.0;
-        _tag.frame = CGRectMake(cx + cosf(_angle) * r - 24, cy + sinf(_angle) * r - 5.5, 48, 11);
-    }];
-    [[NSRunLoop mainRunLoop] addTimer:_rot forMode:NSRunLoopCommonModes];
-
-    return self;
-}
-
-- (void)pan:(UIPanGestureRecognizer *)g {
-    UIView *v = self.superview; if (!v) return;
-    if (g.state == UIGestureRecognizerStateChanged) {
-        CGPoint t = [g translationInView:v];
-        CGPoint c = self.center;
-        c.x += t.x; c.y += t.y;
-        CGFloat r = self.bounds.size.width / 2.0 + 8;
-        c.x = MAX(r, MIN(v.bounds.size.width  - r, c.x));
-        c.y = MAX(r + 44, MIN(v.bounds.size.height - r - 44, c.y));
-        self.center = c;
-        [g setTranslation:CGPointZero inView:v];
-    }
-}
-- (void)tap { if (self.onTap) self.onTap(); }
-
-@end
-
 // ====================================================================
 // 🌟 Splash Screen
 // ====================================================================
