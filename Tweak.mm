@@ -280,7 +280,7 @@ static void*AntiDetachLoop(void*arg){
 }
 
 // ====================================================================
-// 🎨 ESP Overlay (Player Count above screen)
+// 🎨 ESP Overlay
 // ====================================================================
 @interface ESPOverlayView : UIView
 @property(nonatomic,strong)CAShapeLayer*boxLayer,*lineLayer,*bulletLineLayer;
@@ -292,13 +292,11 @@ static void*AntiDetachLoop(void*arg){
         _boxLayer=[CAShapeLayer layer];_boxLayer.strokeColor=[[UIColor colorWithRed:1.0 green:0.0 blue:0.0 alpha:0.9]CGColor];_boxLayer.fillColor=[[UIColor clearColor]CGColor];_boxLayer.lineWidth=1.5;[self.layer addSublayer:_boxLayer];
         _lineLayer=[CAShapeLayer layer];_lineLayer.strokeColor=[[UIColor colorWithRed:1.0 green:1.0 blue:0.0 alpha:0.7]CGColor];_lineLayer.lineWidth=1.0;_lineLayer.lineDashPattern=@[@3,@3];[self.layer addSublayer:_lineLayer];
         _bulletLineLayer=[CAShapeLayer layer];_bulletLineLayer.strokeColor=[[UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.9]CGColor];_bulletLineLayer.lineWidth=2.0;[self.layer addSublayer:_bulletLineLayer];
-        // Players count - top center
         _playerCountLabel=[[UILabel alloc]initWithFrame:CGRectMake(0,60,f.size.width,25)];
         [_playerCountLabel setText:@"Players: 0"];[_playerCountLabel setTextColor:[UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:0.9]];
         [_playerCountLabel setFont:[UIFont boldSystemFontOfSize:15]];[_playerCountLabel setTextAlignment:NSTextAlignmentCenter];
         [_playerCountLabel setShadowColor:[UIColor blackColor]];[_playerCountLabel setShadowOffset:CGSizeMake(1,1)];
         [self addSubview:_playerCountLabel];
-        // Watermark - bottom
         _watermark=[[UILabel alloc]initWithFrame:CGRectMake(-200,f.size.height*0.92,200,25)];
         [_watermark setText:@"RavFen Shadow"];[_watermark setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.15]];
         [_watermark setFont:[UIFont boldSystemFontOfSize:16]];[self addSubview:_watermark];
@@ -362,7 +360,7 @@ static void*AntiDetachLoop(void*arg){
 // ====================================================================
 // 📋 Menu View - Compact Black
 // ====================================================================
-@interface RavMenuView : UIView{dispatch_queue_t _q;NSTimer*_t;UILabel*_pc;UISlider*_ss,*_ds;UILabel*_sv,*_dv;UISwitch*_as,*_es,*_ls,*_bls;UISegmentedControl*_ms;UIButton*_fps;BOOL _fc;ESPOverlayView*_ev;}
+@interface RavMenuView : UIView{dispatch_queue_t _q;NSTimer*_t;UISlider*_ss,*_ds;UILabel*_sv,*_dv;UISwitch*_as,*_es,*_ls,*_bls;UISegmentedControl*_ms;UIButton*_fps;BOOL _fc;ESPOverlayView*_ev;}
 @end
 @implementation RavMenuView
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView*)ov{self=[super initWithFrame:f];if(self){_q=dispatch_queue_create("rf.bg",DISPATCH_QUEUE_SERIAL);_ev=ov;
@@ -377,16 +375,13 @@ static void*AntiDetachLoop(void*arg){
     else{[_fps setTitle:@"" forState:UIControlStateNormal];_fps.backgroundColor=[UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:0.8];}
 }
 - (void)ui{CGFloat w=self.bounds.size.width-20,mw=self.bounds.size.width,y=10;
-    // Header
     UILabel*tt=[[UILabel alloc]initWithFrame:CGRectMake(10,y,mw-40,22)];[tt setText:@"RAVFEN"];[tt setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[tt setFont:[UIFont boldSystemFontOfSize:16]];[self addSubview:tt];
     UIButton*x=[UIButton buttonWithType:UIButtonTypeSystem];x.frame=CGRectMake(mw-32,y,24,24);x.backgroundColor=[UIColor colorWithRed:0.4 green:0.0 blue:0.0 alpha:0.7];x.layer.cornerRadius=12;[x setTitle:@"✕" forState:UIControlStateNormal];[x setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];x.titleLabel.font=[UIFont systemFontOfSize:12];[x addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];[self addSubview:x];y+=30;
-    // Aimbot
     UILabel*ah=[[UILabel alloc]initWithFrame:CGRectMake(10,y,80,18)];[ah setText:@"Aimbot"];[ah setTextColor:[UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0]];[ah setFont:[UIFont boldSystemFontOfSize:13]];[self addSubview:ah];
     _as=[[UISwitch alloc]initWithFrame:CGRectMake(mw-60,y-2,45,20)];_as.onTintColor=[UIColor orangeColor];_as.transform=CGAffineTransformMakeScale(0.7,0.7);[_as addTarget:self action:@selector(tgA) forControlEvents:UIControlEventValueChanged];[self addSubview:_as];y+=22;
     _ms=[[UISegmentedControl alloc]initWithItems:@[@"Lock",@"Fire",@"Scope"]];_ms.frame=CGRectMake(10,y,w,24);_ms.selectedSegmentIndex=0;_ms.tintColor=[UIColor colorWithRed:1.0 green:0.5 blue:0.0 alpha:1.0];[_ms addTarget:self action:@selector(mCh) forControlEvents:UIControlEventValueChanged];[self addSubview:_ms];y+=30;
     _sv=[[UILabel alloc]initWithFrame:CGRectMake(mw-50,y,40,14)];[_sv setText:@"120"];[_sv setTextColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]];[_sv setFont:[UIFont boldSystemFontOfSize:10]];[_sv setTextAlignment:NSTextAlignmentRight];[self addSubview:_sv];
     _ss=[[UISlider alloc]initWithFrame:CGRectMake(10,y,w-50,18)];_ss.minimumValue=1;_ss.maximumValue=150;_ss.value=120;_ss.tintColor=[UIColor orangeColor];[_ss addTarget:self action:@selector(sCh) forControlEvents:UIControlEventValueChanged];[self addSubview:_ss];y+=22;
-    // ESP
     UIView*ln=[[UIView alloc]initWithFrame:CGRectMake(10,y,w,0.5)];ln.backgroundColor=[UIColor colorWithRed:0.3 green:0.3 blue:0.3 alpha:0.5];[self addSubview:ln];y+=6;
     UILabel*eh=[[UILabel alloc]initWithFrame:CGRectMake(10,y,80,18)];[eh setText:@"ESP"];[eh setTextColor:[UIColor colorWithRed:0.3 green:0.8 blue:1.0 alpha:1.0]];[eh setFont:[UIFont boldSystemFontOfSize:13]];[self addSubview:eh];
     _es=[[UISwitch alloc]initWithFrame:CGRectMake(mw-60,y-2,45,20)];_es.onTintColor=[UIColor cyanColor];_es.transform=CGAffineTransformMakeScale(0.7,0.7);[_es addTarget:self action:@selector(tgE) forControlEvents:UIControlEventValueChanged];[self addSubview:_es];y+=22;
@@ -396,15 +391,13 @@ static void*AntiDetachLoop(void*arg){
     UILabel*bl=[[UILabel alloc]initWithFrame:CGRectMake(10,y,90,16)];[bl setText:@"Bullet"];[bl setTextColor:[UIColor colorWithRed:0.7 green:0.7 blue:0.7 alpha:1.0]];[bl setFont:[UIFont systemFontOfSize:11]];[self addSubview:bl];y+=18;
     _dv=[[UILabel alloc]initWithFrame:CGRectMake(mw-50,y,40,14)];[_dv setText:@"200m"];[_dv setTextColor:[UIColor colorWithRed:0.3 green:1.0 blue:0.3 alpha:1.0]];[_dv setFont:[UIFont boldSystemFontOfSize:10]];[_dv setTextAlignment:NSTextAlignmentRight];[self addSubview:_dv];
     _ds=[[UISlider alloc]initWithFrame:CGRectMake(10,y,w-50,18)];_ds.minimumValue=50;_ds.maximumValue=350;_ds.value=200;_ds.tintColor=[UIColor greenColor];[_ds addTarget:self action:@selector(dCh) forControlEvents:UIControlEventValueChanged];[self addSubview:_ds];y+=22;
-    // FPS
     UIView*ln2=[[UIView alloc]initWithFrame:CGRectMake(10,y,w,0.5)];ln2.backgroundColor=[UIColor colorWithRed:0.3 green:0.3 blue:0.3 alpha:0.5];[self addSubview:ln2];y+=6;
     UILabel*fpsl=[[UILabel alloc]initWithFrame:CGRectMake(10,y,100,20)];[fpsl setText:@"120 FPS"];[fpsl setTextColor:[UIColor whiteColor]];[fpsl setFont:[UIFont boldSystemFontOfSize:12]];[self addSubview:fpsl];
     _fps=[UIButton buttonWithType:UIButtonTypeSystem];_fps.frame=CGRectMake(mw-36,y,24,20);_fps.backgroundColor=[UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:0.8];_fps.layer.cornerRadius=4;_fps.layer.borderWidth=1;_fps.layer.borderColor=[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.5].CGColor;[_fps addTarget:self action:@selector(tgF) forControlEvents:UIControlEventTouchUpInside];[self addSubview:_fps];y+=26;
-    // Telegram
     UIButton*tg=[UIButton buttonWithType:UIButtonTypeSystem];tg.frame=CGRectMake(10,y,w,28);[tg setTitle:@"📢 RavFen Channel" forState:UIControlStateNormal];[tg setTitleColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] forState:UIControlStateNormal];tg.titleLabel.font=[UIFont boldSystemFontOfSize:11];tg.backgroundColor=[UIColor colorWithRed:0.15 green:0.1 blue:0.2 alpha:0.7];tg.layer.cornerRadius=6;[tg addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];[self addSubview:tg];
 }
 - (void)openTG{[[UIApplication sharedApplication]openURL:[NSURL URLWithString:@"https://t.me/RavFenupdate"]options:@{}completionHandler:nil];}
-- (void)tgF{_fc=!_fc;if(_fc){[_fps setTitle:@"✓"forState:UIControlStateNormal];[_fps setTitleColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]forState:UIControlStateNormal];_fps.backgroundColor=[UIColor colorWithRed:0.2 green:0.1 blue:0.3 alpha:0.9];pthread_mutex_lock(&g_ConfigMutex);gConfig.fps120Enabled=YES;pthread_mutex_unlock(&g_ConfigMutex);dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW,0),^{SetFPS120();});}else{[_fps setTitle:@""forState:UIControlStateNormal];_fps.backgroundColor=[UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:0.8];pthread_mutex_lock(&g_ConfigMutex);gConfig.fps120Enabled=NO;pthread_mutex_unlock(&g_ConfigMutex);}}
+- (void)tgF{_fc=!_fc;if(_fc){[_fps setTitle:@"✓" forState:UIControlStateNormal];[_fps setTitleColor:[UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] forState:UIControlStateNormal];_fps.backgroundColor=[UIColor colorWithRed:0.2 green:0.1 blue:0.3 alpha:0.9];pthread_mutex_lock(&g_ConfigMutex);gConfig.fps120Enabled=YES;pthread_mutex_unlock(&g_ConfigMutex);dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW,0),^{SetFPS120();});}else{[_fps setTitle:@"" forState:UIControlStateNormal];_fps.backgroundColor=[UIColor colorWithRed:0.15 green:0.15 blue:0.15 alpha:0.8];pthread_mutex_lock(&g_ConfigMutex);gConfig.fps120Enabled=NO;pthread_mutex_unlock(&g_ConfigMutex);}}
 - (void)hide{pthread_mutex_lock(&g_ConfigMutex);gConfig.menuVisible=NO;pthread_mutex_unlock(&g_ConfigMutex);[_t invalidate];_t=nil;[UIView animateWithDuration:0.25 animations:^{self.alpha=0;self.transform=CGAffineTransformMakeScale(0.85,0.85);}completion:^(BOOL f){[self removeFromSuperview];dispatch_async(dispatch_get_main_queue(),^{UIWindow*k=nil;for(UIWindowScene*s in[UIApplication sharedApplication].connectedScenes){if(s.activationState==UISceneActivationStateForegroundActive){k=s.windows.firstObject;break;}}if(!k)return;for(UIView*v in k.subviews){if([v isKindOfClass:[RavFloatingButton class]])return;}RavFloatingButton*fb=[[RavFloatingButton alloc]initWithFrame:CGRectMake(k.bounds.size.width-50-12,k.bounds.size.height*0.55,50,50)];fb.alpha=0;__weak typeof(fb)wfb=fb;fb.onTap=^{[wfb removeFromSuperview];[self showAgain];};[k addSubview:fb];[k bringSubviewToFront:fb];[UIView animateWithDuration:0.3 animations:^{fb.alpha=1;}];});}];}
 - (void)showAgain{dispatch_async(dispatch_get_main_queue(),^{UIWindow*k=nil;for(UIWindowScene*s in[UIApplication sharedApplication].connectedScenes){if(s.activationState==UISceneActivationStateForegroundActive){k=s.windows.firstObject;break;}}if(!k)return;RavMenuView*m=[[RavMenuView alloc]initWithFrame:CGRectMake((k.bounds.size.width-220)/2,(k.bounds.size.height-320)/2,220,320)overlayView:_ev];m.alpha=0;m.transform=CGAffineTransformMakeScale(0.85,0.85);[k addSubview:m];[k bringSubviewToFront:m];pthread_mutex_lock(&g_ConfigMutex);gConfig.menuVisible=YES;pthread_mutex_unlock(&g_ConfigMutex);[UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.65 initialSpringVelocity:0.7 options:0 animations:^{m.alpha=1;m.transform=CGAffineTransformIdentity;}completion:nil];});}
 - (void)tgA{pthread_mutex_lock(&g_ConfigMutex);gConfig.aimbotEnabled=_as.isOn;pthread_mutex_unlock(&g_ConfigMutex);}
