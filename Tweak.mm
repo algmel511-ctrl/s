@@ -573,75 +573,104 @@ static void *AntiDetachLoop(void *arg) {
 // ====================================================================
 // 🎨 Helper — colored label
 // ====================================================================
+// ── Colour palette ────────────────────────────────────────────────────
+#define CLR_BG          [UIColor colorWithRed:0.055 green:0.055 blue:0.075 alpha:1.00]
+#define CLR_PANEL       [UIColor colorWithRed:0.08  green:0.08  blue:0.11  alpha:0.97]
+#define CLR_HDR         [UIColor colorWithRed:0.06  green:0.06  blue:0.09  alpha:1.00]
+#define CLR_VIOLET      [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.00]
+#define CLR_VIOLET_DIM  [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.28]
+#define CLR_GOLD        [UIColor colorWithRed:0.984 green:0.749 blue:0.247 alpha:1.00]
+#define CLR_GOLD_DIM    [UIColor colorWithRed:0.984 green:0.749 blue:0.247 alpha:0.22]
+#define CLR_GREEN       [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:1.00]
+#define CLR_GREEN_DIM   [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:0.22]
+#define CLR_RED         [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00]
+#define CLR_TEXT        [UIColor colorWithRed:0.94  green:0.94  blue:0.96  alpha:1.00]
+#define CLR_MUTED       [UIColor colorWithRed:0.58  green:0.62  blue:0.70  alpha:1.00]
+#define CLR_SEP         [UIColor colorWithRed:1.00  green:1.00  blue:1.00  alpha:0.07]
+
 static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect frame) {
     UILabel *l = [[UILabel alloc] initWithFrame:frame];
-    l.text          = text;
-    l.font          = font;
-    l.textColor     = color;
+    l.text            = text;
+    l.font            = font;
+    l.textColor       = color;
     l.backgroundColor = [UIColor clearColor];
     return l;
 }
 
 // ====================================================================
-// 🔵 Floating Button
+// ◈ Floating Button — pill capsule, violet glow, pulse ring
 // ====================================================================
 @interface RavFloatingButton : UIView
 @property (nonatomic, copy) void (^onTap)(void);
 @end
 
 @implementation RavFloatingButton {
-    UILabel                *_lbl;
     UIPanGestureRecognizer *_pan;
-    CGFloat                 _angle;
-    NSTimer                *_rot;
-    UILabel                *_tag;
+    CALayer                *_ring;
+    NSTimer                *_pulse;
+    CGFloat                 _pulsePhase;
 }
 
 - (instancetype)initWithFrame:(CGRect)f {
     self = [super initWithFrame:f];
     if (!self) return nil;
 
-    self.backgroundColor     = [UIColor colorWithRed:0.0 green:0.1 blue:0.22 alpha:0.88];
-    self.layer.cornerRadius  = f.size.width / 2.0;
-    self.layer.borderWidth   = 2.0;
-    self.layer.borderColor   = [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:0.85].CGColor;
-    self.layer.shadowColor   = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0].CGColor;
-    self.layer.shadowRadius  = 10;
-    self.layer.shadowOpacity = 0.7;
-    self.layer.shadowOffset  = CGSizeMake(0, 0);
+    // Body — rounded square
+    self.backgroundColor    = CLR_HDR;
+    self.layer.cornerRadius = 14;
+    self.layer.borderWidth  = 1.0;
+    self.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
+    self.layer.shadowColor  = CLR_VIOLET.CGColor;
+    self.layer.shadowRadius = 8;
+    self.layer.shadowOpacity= 0.55;
+    self.layer.shadowOffset = CGSizeMake(0, 0);
 
-    _lbl = [[UILabel alloc] initWithFrame:self.bounds];
-    _lbl.text          = @"R";
-    _lbl.textColor     = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    _lbl.font          = [UIFont boldSystemFontOfSize:26];
-    _lbl.textAlignment = NSTextAlignmentCenter;
-    _lbl.userInteractionEnabled = NO;
-    [self addSubview:_lbl];
+    // Outer pulse ring (CALayer, no UIView clip)
+    _ring = [CALayer layer];
+    _ring.frame        = CGRectInset(self.bounds, -4, -4);
+    _ring.cornerRadius = 18;
+    _ring.borderWidth  = 1.5;
+    _ring.borderColor  = CLR_VIOLET.CGColor;
+    _ring.opacity      = 0.5;
+    [self.layer addSublayer:_ring];
 
-    _tag = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 48, 11)];
-    _tag.text          = @"RavFen";
-    _tag.textColor     = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:0.55];
-    _tag.font          = [UIFont boldSystemFontOfSize:8];
-    _tag.userInteractionEnabled = NO;
-    [self addSubview:_tag];
+    // Monogram "RF"
+    UILabel *mono = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, f.size.width, f.size.height - 12)];
+    mono.text                  = @"RF";
+    mono.textColor             = CLR_VIOLET;
+    mono.font                  = [UIFont boldSystemFontOfSize:15];
+    mono.textAlignment         = NSTextAlignmentCenter;
+    mono.userInteractionEnabled = NO;
+    [self addSubview:mono];
 
+    // Small label under monogram
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height - 16, f.size.width, 12)];
+    sub.text                  = @"WRAITH";
+    sub.textColor             = CLR_MUTED;
+    sub.font                  = [UIFont boldSystemFontOfSize:7];
+    sub.textAlignment         = NSTextAlignmentCenter;
+    sub.userInteractionEnabled = NO;
+    [self addSubview:sub];
+
+    // Gestures
     _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
     [self addGestureRecognizer:_pan];
-
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap)];
     [self addGestureRecognizer:tap];
     [_pan requireGestureRecognizerToFail:tap];
 
-    _angle = 0;
-    _rot = [NSTimer scheduledTimerWithTimeInterval:0.03
-                                           repeats:YES
-                                             block:^(NSTimer *t) {
+    // Pulse animation
+    _pulsePhase = 0;
+    _pulse = [NSTimer scheduledTimerWithTimeInterval:0.04 repeats:YES block:^(NSTimer *t) {
         if (!self.superview) { [t invalidate]; return; }
-        _angle += 0.08;
-        CGFloat r  = 26, cx = self.bounds.size.width / 2.0, cy = self.bounds.size.height / 2.0;
-        _tag.frame = CGRectMake(cx + cosf(_angle) * r - 24, cy + sinf(_angle) * r - 5.5, 48, 11);
+        _pulsePhase += 0.07;
+        CGFloat a = 0.25 + 0.25 * sinf(_pulsePhase);
+        _ring.opacity = a;
+        CGFloat ex = 3 + 2 * sinf(_pulsePhase);
+        _ring.frame = CGRectInset(self.bounds, -ex, -ex);
+        _ring.cornerRadius = 14 + ex;
     }];
-    [[NSRunLoop mainRunLoop] addTimer:_rot forMode:NSRunLoopCommonModes];
+    [[NSRunLoop mainRunLoop] addTimer:_pulse forMode:NSRunLoopCommonModes];
 
     return self;
 }
@@ -652,7 +681,7 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
         CGPoint t = [g translationInView:v];
         CGPoint c = self.center;
         c.x += t.x; c.y += t.y;
-        CGFloat r = self.bounds.size.width / 2.0 + 8;
+        CGFloat r = self.bounds.size.width / 2.0 + 10;
         c.x = MAX(r, MIN(v.bounds.size.width  - r, c.x));
         c.y = MAX(r + 44, MIN(v.bounds.size.height - r - 44, c.y));
         self.center = c;
@@ -664,7 +693,7 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// 📋 Menu View — تصميم هيبة جديد كامل
+// ◈ Menu View — WRAITH design
 // ====================================================================
 @interface RavMenuView : UIView
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov;
@@ -682,22 +711,35 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     CGPoint             _startCenter;
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────
+static UIView *Sep(CGFloat x, CGFloat y, CGFloat w) {
+    UIView *v = [[UIView alloc] initWithFrame:CGRectMake(x, y, w, 0.5)];
+    v.backgroundColor = CLR_SEP;
+    return v;
+}
+
+static UISwitch *StyledSwitch(UIColor *onColor) {
+    UISwitch *s = [[UISwitch alloc] init];
+    s.transform   = CGAffineTransformMakeScale(0.70, 0.70);
+    s.onTintColor = onColor;
+    return s;
+}
+
+// ── Init ─────────────────────────────────────────────────────────────
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov {
     self = [super initWithFrame:f];
     if (!self) return nil;
     _ev = ov;
 
-    // Background
-    self.backgroundColor = [UIColor colorWithRed:0.03 green:0.03 blue:0.10 alpha:0.96];
-    self.layer.cornerRadius  = 16;
-    self.layer.borderWidth   = 1.5;
-    self.layer.borderColor   = [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:0.45].CGColor;
-    self.clipsToBounds       = NO;
-    // Outer glow
-    self.layer.shadowColor   = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0].CGColor;
-    self.layer.shadowRadius  = 12;
-    self.layer.shadowOpacity = 0.35;
-    self.layer.shadowOffset  = CGSizeMake(0, 0);
+    self.backgroundColor    = CLR_PANEL;
+    self.layer.cornerRadius = 20;
+    self.layer.borderWidth  = 1.0;
+    self.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
+    self.clipsToBounds      = NO;
+    self.layer.shadowColor  = CLR_VIOLET.CGColor;
+    self.layer.shadowRadius = 16;
+    self.layer.shadowOpacity= 0.30;
+    self.layer.shadowOffset = CGSizeMake(0, 4);
 
     _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panMenu:)];
     [self addGestureRecognizer:_pan];
@@ -736,236 +778,194 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 - (void)updateFPSButton {
     if (_fc) {
         [_fps setTitle:@"ON" forState:UIControlStateNormal];
-        [_fps setTitleColor:[UIColor colorWithRed:0.0 green:1.0 blue:0.55 alpha:1.0]
-                  forState:UIControlStateNormal];
-        _fps.backgroundColor        = [UIColor colorWithRed:0.0 green:0.25 blue:0.12 alpha:1.0];
-        _fps.layer.borderColor      = [UIColor colorWithRed:0.0 green:1.0 blue:0.55 alpha:0.8].CGColor;
+        [_fps setTitleColor:CLR_GREEN forState:UIControlStateNormal];
+        _fps.backgroundColor   = CLR_GREEN_DIM;
+        _fps.layer.borderColor = CLR_GREEN.CGColor;
     } else {
         [_fps setTitle:@"OFF" forState:UIControlStateNormal];
-        [_fps setTitleColor:[UIColor colorWithRed:0.5 green:0.5 blue:0.6 alpha:1.0]
-                  forState:UIControlStateNormal];
-        _fps.backgroundColor        = [UIColor colorWithRed:0.08 green:0.08 blue:0.16 alpha:1.0];
-        _fps.layer.borderColor      = [UIColor colorWithRed:0.3 green:0.3 blue:0.5 alpha:0.5].CGColor;
+        [_fps setTitleColor:CLR_MUTED forState:UIControlStateNormal];
+        _fps.backgroundColor   = [UIColor colorWithRed:0.1 green:0.1 blue:0.14 alpha:1.0];
+        _fps.layer.borderColor = CLR_SEP.CGColor;
     }
 }
 
 - (void)buildUI {
-    CGFloat mw  = self.bounds.size.width;
-    CGFloat y   = 0;
-    CGFloat pw  = mw - 20; // padded width
+    CGFloat mw = self.bounds.size.width;
+    CGFloat pw = mw - 24;
+    CGFloat y  = 0;
 
-    // ── Header bar ───────────────────────────────────────
-    UIView *hdrBg = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, 46)];
-    hdrBg.backgroundColor = [UIColor colorWithRed:0.0 green:0.08 blue:0.18 alpha:1.0];
-    [self addSubview:hdrBg];
+    // ── Header ────────────────────────────────────────────
+    UIView *hdr = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, 52)];
+    hdr.backgroundColor    = CLR_HDR;
+    hdr.layer.cornerRadius = 20;
+    // only top corners
+    hdr.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    [self addSubview:hdr];
 
-    // R badge
-    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(12, 9, 28, 28)];
-    badge.text           = @"R";
-    badge.textColor      = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    badge.font           = [UIFont boldSystemFontOfSize:17];
-    badge.textAlignment  = NSTextAlignmentCenter;
-    badge.backgroundColor= [UIColor colorWithRed:0.0 green:0.25 blue:0.4 alpha:0.9];
+    // Brand pill badge  "RF"
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(14, 13, 28, 26)];
+    badge.text             = @"RF";
+    badge.textColor        = CLR_VIOLET;
+    badge.font             = [UIFont boldSystemFontOfSize:12];
+    badge.textAlignment    = NSTextAlignmentCenter;
+    badge.backgroundColor  = CLR_VIOLET_DIM;
     badge.layer.cornerRadius = 8;
-    badge.clipsToBounds  = YES;
-    badge.layer.borderWidth = 1;
-    badge.layer.borderColor = [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:0.6].CGColor;
+    badge.clipsToBounds    = YES;
     [self addSubview:badge];
 
-    // Title
-    UILabel *ttl = [[UILabel alloc] initWithFrame:CGRectMake(48, 7, mw - 100, 18)];
-    ttl.text      = @"RAVFEN SHADOW";
-    ttl.textColor = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    ttl.font      = [UIFont boldSystemFontOfSize:13];
+    UILabel *ttl = RavLabel(@"RAVFEN  WRAITH",
+        [UIFont boldSystemFontOfSize:12], CLR_TEXT,
+        CGRectMake(50, 10, mw - 100, 17));
     [self addSubview:ttl];
 
-    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(48, 25, mw - 100, 13)];
-    ver.text      = @"v7.1  •  PUBG 4.5.0";
-    ver.textColor = [UIColor colorWithRed:0.35 green:0.55 blue:0.75 alpha:1.0];
-    ver.font      = [UIFont systemFontOfSize:9];
+    UILabel *ver = RavLabel(@"v7.1  ·  PUBG 4.5.0",
+        [UIFont systemFontOfSize:9], CLR_MUTED,
+        CGRectMake(50, 27, mw - 100, 14));
     [self addSubview:ver];
 
-    // Close button
+    // Close ×
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(mw - 38, 11, 26, 24);
-    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-    [closeBtn setTitleColor:[UIColor colorWithRed:0.8 green:0.3 blue:0.3 alpha:1.0]
-                  forState:UIControlStateNormal];
-    closeBtn.titleLabel.font     = [UIFont boldSystemFontOfSize:13];
-    closeBtn.backgroundColor     = [UIColor colorWithRed:0.35 green:0.05 blue:0.05 alpha:0.7];
-    closeBtn.layer.cornerRadius  = 6;
-    closeBtn.layer.borderWidth   = 1;
-    closeBtn.layer.borderColor   = [UIColor colorWithRed:0.8 green:0.2 blue:0.2 alpha:0.4].CGColor;
+    closeBtn.frame = CGRectMake(mw - 40, 14, 26, 24);
+    [closeBtn setTitle:@"×" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:CLR_RED forState:UIControlStateNormal];
+    closeBtn.titleLabel.font    = [UIFont systemFontOfSize:20];
+    closeBtn.backgroundColor    = [UIColor colorWithRed:0.25 green:0.04 blue:0.04 alpha:0.7];
+    closeBtn.layer.cornerRadius = 8;
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:closeBtn];
 
-    y = 54;
+    y = 60;
 
-    // ── Section helper ────────────────────────────────────
-    // AIMBOT section label
-    UILabel *aimHdr = RavLabel(@"⬡  AIMBOT",
-        [UIFont boldSystemFontOfSize:11],
-        [UIColor colorWithRed:1.0 green:0.45 blue:0.1 alpha:1.0],
-        CGRectMake(12, y, 110, 18));
+    // ── AIMBOT section ────────────────────────────────────
+    UILabel *aimHdr = RavLabel(@"AIMBOT",
+        [UIFont boldSystemFontOfSize:9.5], CLR_GOLD,
+        CGRectMake(14, y, 80, 14));
     [self addSubview:aimHdr];
 
-    _as = [[UISwitch alloc] init];
-    _as.transform   = CGAffineTransformMakeScale(0.72, 0.72);
-    _as.onTintColor = [UIColor colorWithRed:1.0 green:0.45 blue:0.1 alpha:1.0];
-    _as.frame       = CGRectMake(mw - 62, y - 3, 51, 31);
+    _as = StyledSwitch(CLR_GOLD);
+    _as.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_as addTarget:self action:@selector(tgA) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_as];
-    y += 24;
+    y += 20;
 
-    // Mode segmented
+    // Mode picker
     _ms = [[UISegmentedControl alloc] initWithItems:@[@"Lock", @"Fire", @"Scope"]];
-    _ms.frame                    = CGRectMake(10, y, pw, 26);
-    _ms.selectedSegmentIndex     = 0;
-    _ms.backgroundColor          = [UIColor colorWithRed:0.05 green:0.05 blue:0.15 alpha:1.0];
-    [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor colorWithRed:0.6 green:0.6 blue:0.8 alpha:1.0],
-                                   NSFontAttributeName:[UIFont boldSystemFontOfSize:10]}
+    _ms.frame                = CGRectMake(12, y, pw, 27);
+    _ms.selectedSegmentIndex = 0;
+    _ms.backgroundColor      = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0];
+    [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_MUTED,
+                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
                        forState:UIControlStateNormal];
-    [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor colorWithRed:1.0 green:0.55 blue:0.1 alpha:1.0],
-                                   NSFontAttributeName:[UIFont boldSystemFontOfSize:10]}
+    [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_GOLD,
+                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
                        forState:UIControlStateSelected];
     if (@available(iOS 13.0, *)) {
-        _ms.selectedSegmentTintColor = [UIColor colorWithRed:0.25 green:0.1 blue:0.0 alpha:1.0];
+        _ms.selectedSegmentTintColor = CLR_GOLD_DIM;
     }
     [_ms addTarget:self action:@selector(mCh) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_ms];
-    y += 32;
+    y += 33;
 
-    // Speed label + slider
-    UILabel *spLbl = RavLabel(@"Speed",
-        [UIFont systemFontOfSize:10],
-        [UIColor colorWithRed:0.55 green:0.55 blue:0.75 alpha:1.0],
-        CGRectMake(12, y, 40, 16));
+    // Speed row
+    UILabel *spLbl = RavLabel(@"Speed", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y, 50, 15));
     [self addSubview:spLbl];
-    _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:10],
-        [UIColor colorWithRed:1.0 green:0.75 blue:0.2 alpha:1.0],
-        CGRectMake(mw - 36, y, 26, 16));
+    _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
+                   CGRectMake(mw - 38, y, 28, 15));
     _sv.textAlignment = NSTextAlignmentRight;
     [self addSubview:_sv];
-    y += 16;
+    y += 15;
 
-    _ss = [[UISlider alloc] initWithFrame:CGRectMake(10, y, pw, 18)];
-    _ss.minimumValue = 1; _ss.maximumValue = 150; _ss.value = 120;
-    _ss.minimumTrackTintColor = [UIColor colorWithRed:1.0 green:0.45 blue:0.1 alpha:1.0];
-    _ss.maximumTrackTintColor = [UIColor colorWithRed:0.12 green:0.12 blue:0.22 alpha:1.0];
+    _ss = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
+    _ss.minimumValue         = 1; _ss.maximumValue = 150; _ss.value = 120;
+    _ss.minimumTrackTintColor = CLR_GOLD;
+    _ss.maximumTrackTintColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
     [_ss addTarget:self action:@selector(sCh) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_ss];
-    y += 26;
+    y += 24;
 
-    // ── Divider ───────────────────────────────────────────
-    UIView *div1 = [[UIView alloc] initWithFrame:CGRectMake(10, y, pw, 0.6)];
-    div1.backgroundColor = [UIColor colorWithRed:0.0 green:0.7 blue:1.0 alpha:0.18];
-    [self addSubview:div1];
-    y += 10;
+    [self addSubview:Sep(12, y, pw)]; y += 12;
 
     // ── ESP section ───────────────────────────────────────
-    UILabel *espHdr = RavLabel(@"⬡  ESP",
-        [UIFont boldSystemFontOfSize:11],
-        [UIColor colorWithRed:0.0 green:0.9 blue:1.0 alpha:1.0],
-        CGRectMake(12, y, 80, 18));
+    UILabel *espHdr = RavLabel(@"ESP",
+        [UIFont boldSystemFontOfSize:9.5], CLR_VIOLET,
+        CGRectMake(14, y, 60, 14));
     [self addSubview:espHdr];
 
-    _es = [[UISwitch alloc] init];
-    _es.transform   = CGAffineTransformMakeScale(0.72, 0.72);
-    _es.onTintColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
-    _es.frame       = CGRectMake(mw - 62, y - 3, 51, 31);
+    _es = StyledSwitch(CLR_VIOLET);
+    _es.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_es addTarget:self action:@selector(tgE) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_es];
-    y += 26;
+    y += 22;
 
-    // Lines toggle row
-    UILabel *lineLbl = RavLabel(@"Lines",
-        [UIFont systemFontOfSize:10],
-        [UIColor colorWithRed:0.6 green:0.6 blue:0.8 alpha:1.0],
-        CGRectMake(12, y, 60, 18));
-    [self addSubview:lineLbl];
-    _ls = [[UISwitch alloc] init];
-    _ls.transform   = CGAffineTransformMakeScale(0.65, 0.65);
-    _ls.onTintColor = [UIColor colorWithRed:1.0 green:0.9 blue:0.0 alpha:1.0];
-    _ls.frame       = CGRectMake(mw - 62, y - 2, 51, 28);
+    // Lines
+    [self addSubview:RavLabel(@"Skeleton Lines", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y + 2, 110, 15))];
+    _ls = StyledSwitch(CLR_GREEN);
+    _ls.frame = CGRectMake(mw - 58, y - 1, 51, 28);
     [_ls addTarget:self action:@selector(tgL) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_ls];
     y += 22;
 
-    // Bullet line toggle row
-    UILabel *bullLbl = RavLabel(@"Bullet",
-        [UIFont systemFontOfSize:10],
-        [UIColor colorWithRed:0.6 green:0.6 blue:0.8 alpha:1.0],
-        CGRectMake(12, y, 60, 18));
-    [self addSubview:bullLbl];
-    _bls = [[UISwitch alloc] init];
-    _bls.transform   = CGAffineTransformMakeScale(0.65, 0.65);
-    _bls.onTintColor = [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:1.0];
-    _bls.frame       = CGRectMake(mw - 62, y - 2, 51, 28);
+    // Bullet
+    [self addSubview:RavLabel(@"Bullet Tracer", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y + 2, 100, 15))];
+    _bls = StyledSwitch(CLR_RED);
+    _bls.frame = CGRectMake(mw - 58, y - 1, 51, 28);
     [_bls addTarget:self action:@selector(tgB) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_bls];
     y += 22;
 
-    // Distance label + slider
-    UILabel *dLbl = RavLabel(@"Dist",
-        [UIFont systemFontOfSize:10],
-        [UIColor colorWithRed:0.55 green:0.55 blue:0.75 alpha:1.0],
-        CGRectMake(12, y, 36, 16));
+    // Distance row
+    UILabel *dLbl = RavLabel(@"Distance", [UIFont systemFontOfSize:10], CLR_MUTED,
+                             CGRectMake(14, y, 60, 15));
     [self addSubview:dLbl];
-    _dv = RavLabel(@"200m", [UIFont boldSystemFontOfSize:10],
-        [UIColor colorWithRed:0.0 green:1.0 blue:0.6 alpha:1.0],
-        CGRectMake(mw - 42, y, 32, 16));
+    _dv = RavLabel(@"200m", [UIFont boldSystemFontOfSize:10], CLR_VIOLET,
+                   CGRectMake(mw - 42, y, 32, 15));
     _dv.textAlignment = NSTextAlignmentRight;
     [self addSubview:_dv];
-    y += 16;
+    y += 15;
 
-    _ds = [[UISlider alloc] initWithFrame:CGRectMake(10, y, pw, 18)];
-    _ds.minimumValue = 50; _ds.maximumValue = 350; _ds.value = 200;
-    _ds.minimumTrackTintColor = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0];
-    _ds.maximumTrackTintColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.18 alpha:1.0];
+    _ds = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
+    _ds.minimumValue         = 50; _ds.maximumValue = 350; _ds.value = 200;
+    _ds.minimumTrackTintColor = CLR_VIOLET;
+    _ds.maximumTrackTintColor = [UIColor colorWithRed:0.12 green:0.10 blue:0.16 alpha:1.0];
     [_ds addTarget:self action:@selector(dCh) forControlEvents:UIControlEventValueChanged];
     [self addSubview:_ds];
-    y += 26;
+    y += 24;
 
-    // ── Divider ───────────────────────────────────────────
-    UIView *div2 = [[UIView alloc] initWithFrame:CGRectMake(10, y, pw, 0.6)];
-    div2.backgroundColor = [UIColor colorWithRed:0.0 green:0.7 blue:1.0 alpha:0.18];
-    [self addSubview:div2];
-    y += 10;
+    [self addSubview:Sep(12, y, pw)]; y += 12;
 
-    // ── FPS ───────────────────────────────────────────────
-    UILabel *fpsLbl = RavLabel(@"⚡  120 FPS",
-        [UIFont boldSystemFontOfSize:11],
-        [UIColor colorWithRed:0.9 green:0.9 blue:1.0 alpha:1.0],
-        CGRectMake(12, y, 100, 20));
-    [self addSubview:fpsLbl];
+    // ── SYSTEM section ────────────────────────────────────
+    UILabel *sysHdr = RavLabel(@"SYSTEM",
+        [UIFont boldSystemFontOfSize:9.5], CLR_MUTED,
+        CGRectMake(14, y, 60, 14));
+    [self addSubview:sysHdr];
+    y += 18;
 
+    // 120 FPS row
+    [self addSubview:RavLabel(@"120 FPS Unlock", [UIFont systemFontOfSize:10], CLR_TEXT,
+                              CGRectMake(14, y + 1, 130, 16))];
     _fps = [UIButton buttonWithType:UIButtonTypeSystem];
-    _fps.frame = CGRectMake(mw - 50, y, 40, 20);
-    _fps.titleLabel.font    = [UIFont boldSystemFontOfSize:10];
-    _fps.layer.cornerRadius = 5;
-    _fps.layer.borderWidth  = 1;
-    _fps.clipsToBounds      = YES;
+    _fps.frame               = CGRectMake(mw - 52, y, 40, 20);
+    _fps.titleLabel.font     = [UIFont boldSystemFontOfSize:10];
+    _fps.layer.cornerRadius  = 6;
+    _fps.layer.borderWidth   = 1;
+    _fps.clipsToBounds       = YES;
     [_fps addTarget:self action:@selector(tgF) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:_fps];
     y += 28;
 
-    // ── Divider ───────────────────────────────────────────
-    UIView *div3 = [[UIView alloc] initWithFrame:CGRectMake(10, y, pw, 0.6)];
-    div3.backgroundColor = [UIColor colorWithRed:0.0 green:0.7 blue:1.0 alpha:0.18];
-    [self addSubview:div3];
-    y += 8;
-
-    // ── Telegram button ───────────────────────────────────
+    // Telegram
     UIButton *tgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    tgBtn.frame = CGRectMake(10, y, pw, 28);
-    [tgBtn setTitle:@"📢  t.me/RavFenupdate" forState:UIControlStateNormal];
-    [tgBtn setTitleColor:[UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:1.0]
-               forState:UIControlStateNormal];
-    tgBtn.titleLabel.font     = [UIFont boldSystemFontOfSize:10];
-    tgBtn.backgroundColor     = [UIColor colorWithRed:0.0 green:0.12 blue:0.22 alpha:1.0];
-    tgBtn.layer.cornerRadius  = 8;
-    tgBtn.layer.borderWidth   = 1;
-    tgBtn.layer.borderColor   = [UIColor colorWithRed:0.0 green:0.7 blue:1.0 alpha:0.3].CGColor;
+    tgBtn.frame = CGRectMake(12, y, pw, 30);
+    [tgBtn setTitle:@"▸  t.me/RavFenupdate" forState:UIControlStateNormal];
+    [tgBtn setTitleColor:CLR_VIOLET forState:UIControlStateNormal];
+    tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:10];
+    tgBtn.backgroundColor    = CLR_VIOLET_DIM;
+    tgBtn.layer.cornerRadius = 10;
+    tgBtn.layer.borderWidth  = 1;
+    tgBtn.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
     [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:tgBtn];
 }
@@ -1059,8 +1059,7 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// ====================================================================
-// 🌟 Splash Screen
+// ◈ Splash Screen — minimal dark, hexagon ring + brand fade
 // ====================================================================
 @interface RavSplashView : UIView @end
 @implementation RavSplashView
@@ -1068,74 +1067,180 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 - (instancetype)initWithFrame:(CGRect)f {
     self = [super initWithFrame:f];
     if (!self) return nil;
-    self.backgroundColor = [UIColor blackColor];
+    self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
 
-    // Glowing R
-    UILabel *big = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height * 0.28, f.size.width, 110)];
-    big.text          = @"R";
-    big.textColor     = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    big.font          = [UIFont boldSystemFontOfSize:96];
-    big.textAlignment = NSTextAlignmentCenter;
-    big.alpha         = 0;
-    [self addSubview:big];
+    CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.42;
 
-    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height * 0.50, f.size.width, 36)];
-    sub.text          = @"RAVFEN SHADOW";
-    sub.textColor     = [UIColor colorWithRed:0.0 green:0.85 blue:1.0 alpha:0.9];
-    sub.font          = [UIFont boldSystemFontOfSize:20];
-    sub.textAlignment = NSTextAlignmentCenter;
-    sub.alpha         = 0;
-    [self addSubview:sub];
+    // Outer hex ring via CAShapeLayer
+    CGFloat hex = 68;
+    UIBezierPath *hexPath = [UIBezierPath bezierPath];
+    for (int i = 0; i < 6; i++) {
+        CGFloat angle = M_PI / 180.0 * (60 * i - 30);
+        CGPoint pt = CGPointMake(cx + hex * cosf(angle), cy + hex * sinf(angle));
+        i == 0 ? [hexPath moveToPoint:pt] : [hexPath addLineToPoint:pt];
+    }
+    [hexPath closePath];
 
-    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height * 0.57, f.size.width, 22)];
-    ver.text          = @"v7.1  •  PUBG Mobile 4.5.0";
-    ver.textColor     = [UIColor colorWithRed:0.3 green:0.55 blue:0.75 alpha:1.0];
-    ver.font          = [UIFont systemFontOfSize:12];
+    CAShapeLayer *ring = [CAShapeLayer layer];
+    ring.path        = hexPath.CGPath;
+    ring.strokeColor = CLR_VIOLET.CGColor;
+    ring.fillColor   = [UIColor clearColor].CGColor;
+    ring.lineWidth   = 1.5;
+    ring.opacity     = 0;
+    [self.layer addSublayer:ring];
+
+    // Inner hex (dimmer, smaller)
+    CGFloat hex2 = 44;
+    UIBezierPath *hexPath2 = [UIBezierPath bezierPath];
+    for (int i = 0; i < 6; i++) {
+        CGFloat angle = M_PI / 180.0 * (60 * i - 30);
+        CGPoint pt = CGPointMake(cx + hex2 * cosf(angle), cy + hex2 * sinf(angle));
+        i == 0 ? [hexPath2 moveToPoint:pt] : [hexPath2 addLineToPoint:pt];
+    }
+    [hexPath2 closePath];
+
+    CAShapeLayer *ring2 = [CAShapeLayer layer];
+    ring2.path        = hexPath2.CGPath;
+    ring2.strokeColor = CLR_VIOLET_DIM.CGColor;
+    ring2.fillColor   = CLR_VIOLET_DIM.CGColor;
+    ring2.lineWidth   = 1.0;
+    ring2.opacity     = 0;
+    [self.layer addSublayer:ring2];
+
+    // Monogram — no boring "R", use the brand initials stacked
+    UILabel *mono = [[UILabel alloc] initWithFrame:CGRectMake(cx - 30, cy - 22, 60, 44)];
+    mono.text          = @"RF";
+    mono.textColor     = CLR_VIOLET;
+    mono.font          = [UIFont boldSystemFontOfSize:30];
+    mono.textAlignment = NSTextAlignmentCenter;
+    mono.alpha         = 0;
+    [self addSubview:mono];
+
+    // Brand name
+    UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 90, f.size.width, 28)];
+    name.text          = @"RAVFEN  WRAITH";
+    name.textColor     = CLR_TEXT;
+    name.font          = [UIFont boldSystemFontOfSize:18];
+    name.textAlignment = NSTextAlignmentCenter;
+    name.alpha         = 0;
+    [self addSubview:name];
+
+    // Version
+    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 120, f.size.width, 20)];
+    ver.text          = @"v7.1  ·  PUBG Mobile 4.5.0";
+    ver.textColor     = CLR_MUTED;
+    ver.font          = [UIFont systemFontOfSize:11];
     ver.textAlignment = NSTextAlignmentCenter;
     ver.alpha         = 0;
     [self addSubview:ver];
 
-    [UIView animateWithDuration:0.5 delay:0.15 options:0 animations:^{ big.alpha = 1; } completion:nil];
-    [UIView animateWithDuration:0.5 delay:0.45 options:0 animations:^{ sub.alpha = 1; ver.alpha = 1; } completion:nil];
+    // Thin bottom line accent
+    UIView *line = [[UIView alloc] initWithFrame:CGRectMake(f.size.width * 0.3, f.size.height - 60,
+                                                            f.size.width * 0.4, 0.5)];
+    line.backgroundColor = CLR_VIOLET;
+    line.alpha           = 0;
+    [self addSubview:line];
+
+    // Animations
+    [UIView animateWithDuration:0.6 delay:0.1 options:0 animations:^{
+        ring.opacity  = 1.0;
+        ring2.opacity = 0.6;
+        mono.alpha    = 1;
+    } completion:nil];
+    [UIView animateWithDuration:0.5 delay:0.5 options:0 animations:^{
+        name.alpha = 1; ver.alpha = 1; line.alpha = 1;
+    } completion:nil];
 
     return self;
 }
 @end
 
 // ====================================================================
-// 🔒 Captcha / Tap to Start
+// ◈ Captcha — "TOUCH TO ARM" minimal pulse
 // ====================================================================
 @interface RavCaptchaView : UIView
 @property (nonatomic, copy) void (^onDone)(void);
 @end
 
-@implementation RavCaptchaView
+@implementation RavCaptchaView {
+    NSTimer *_dotTimer;
+    CGFloat  _dotPhase;
+    CALayer *_dot;
+}
 
 - (instancetype)initWithFrame:(CGRect)f {
     self = [super initWithFrame:f];
     if (!self) return nil;
-    self.backgroundColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.08 alpha:0.95];
+    self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
 
-    UILabel *tap = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height * 0.44, f.size.width, 44)];
-    tap.text          = @"TAP TO START";
-    tap.textColor     = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:1.0];
-    tap.font          = [UIFont boldSystemFontOfSize:24];
-    tap.textAlignment = NSTextAlignmentCenter;
-    [self addSubview:tap];
+    CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.45;
 
-    [UIView animateWithDuration:0.9 delay:0
-                        options:UIViewAnimationOptionAutoreverse | UIViewAnimationOptionRepeat
-                     animations:^{ tap.alpha = 0.25; }
+    // Pulsing dot
+    _dot = [CALayer layer];
+    _dot.frame        = CGRectMake(cx - 5, cy - 5, 10, 10);
+    _dot.cornerRadius = 5;
+    _dot.backgroundColor = CLR_VIOLET.CGColor;
+    [self.layer addSublayer:_dot];
+
+    // Outer ripple ring (static, low opacity)
+    CALayer *ripple = [CALayer layer];
+    ripple.frame           = CGRectMake(cx - 20, cy - 20, 40, 40);
+    ripple.cornerRadius    = 20;
+    ripple.borderColor     = CLR_VIOLET.CGColor;
+    ripple.borderWidth     = 0.75;
+    ripple.backgroundColor = [UIColor clearColor].CGColor;
+    ripple.opacity         = 0.3;
+    [self.layer addSublayer:ripple];
+
+    // Label
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 44, f.size.width, 26)];
+    lbl.text          = @"TOUCH  TO  ARM";
+    lbl.textColor     = CLR_TEXT;
+    lbl.font          = [UIFont boldSystemFontOfSize:14];
+    lbl.textAlignment = NSTextAlignmentCenter;
+    lbl.alpha         = 0;
+    [self addSubview:lbl];
+
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 72, f.size.width, 16)];
+    sub.text          = @"RAVFEN  WRAITH";
+    sub.textColor     = CLR_MUTED;
+    sub.font          = [UIFont systemFontOfSize:9];
+    sub.textAlignment = NSTextAlignmentCenter;
+    sub.alpha         = 0;
+    [self addSubview:sub];
+
+    [UIView animateWithDuration:0.5 delay:0.3 options:0
+                     animations:^{ lbl.alpha = 1; sub.alpha = 0.7; }
                      completion:nil];
 
-    UITapGestureRecognizer *tg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)];
+    // Dot pulse timer
+    _dotPhase = 0;
+    _dotTimer = [NSTimer scheduledTimerWithTimeInterval:0.04 repeats:YES block:^(NSTimer *t) {
+        if (!self.superview) { [t invalidate]; return; }
+        _dotPhase += 0.06;
+        CGFloat s = 0.6 + 0.4 * sinf(_dotPhase);
+        _dot.opacity = s;
+        CGFloat sz = 10 + 4 * sinf(_dotPhase);
+        _dot.frame = CGRectMake(cx - sz / 2, cy - sz / 2, sz, sz);
+        _dot.cornerRadius = sz / 2;
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:_dotTimer forMode:NSRunLoopCommonModes];
+
+    UITapGestureRecognizer *tg = [[UITapGestureRecognizer alloc]
+        initWithTarget:self action:@selector(tapped)];
     [self addGestureRecognizer:tg];
     return self;
 }
 
 - (void)tapped {
+    [_dotTimer invalidate];
     self.userInteractionEnabled = NO;
-    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; }
+    [UIView animateWithDuration:0.35
+                          delay:0
+         usingSpringWithDamping:0.7
+          initialSpringVelocity:0.5
+                        options:0
+                     animations:^{ self.alpha = 0; self.transform = CGAffineTransformMakeScale(1.04, 1.04); }
                      completion:^(BOOL d) {
         [self removeFromSuperview];
         if (self.onDone) self.onDone();
