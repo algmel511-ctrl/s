@@ -130,12 +130,6 @@ static BOOL WriteFloat(uint64_t addr, float val) {
     if (fabsf(c - val) < 0.001f) return YES;
     return WriteMem(addr, &val, 4);
 }
-static BOOL WriteInt(uint64_t addr, int32_t val) {
-    if (!addr) return NO;
-    int32_t c = ReadInt(addr);
-    if (c == val) return YES;
-    return WriteMem(addr, &val, 4);
-}
 
 // ====================================================================
 // 👤 IsPlayer
