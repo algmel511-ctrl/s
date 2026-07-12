@@ -1392,7 +1392,7 @@ static void RavAuthLogin(NSString *user, NSString *pass,
     [req setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15"
        forHTTPHeaderField:@"User-Agent"];
 
-    NSDictionary *body = @{@"username": user, @"password": pass};
+    NSDictionary *body = @{@"email": user, @"password": pass};
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
 
     [[NSURLSession.sharedSession
@@ -1465,7 +1465,7 @@ static void RavAuthLogin(NSString *user, NSString *pass,
     CGFloat fx = (f.size.width - fw) / 2.0;
     CGFloat fy = top + 118;
 
-    _userF = [self makeField:@"Username" secure:NO  frame:CGRectMake(fx, fy, fw, 44)];
+    _userF = [self makeField:@"Email" secure:NO  frame:CGRectMake(fx, fy, fw, 44)];
     [self addSubview:_userF];
 
     _passF = [self makeField:@"Password" secure:YES frame:CGRectMake(fx, fy + 54, fw, 44)];
