@@ -94,9 +94,9 @@ static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // ── Global addresses (fixed per version) ─────────────────
-        gOffsets[OFF_GW]  = 0xA68D558;  // GWorld
-        gOffsets[OFF_GN]  = 0xA5C1598;  // GName
-        gOffsets[OFF_VMC] = 0x7F8B000;  // ViewMatrix
+        gOffsets[OFF_GW]  = 0x10A88BA60;  // GWorld
+        gOffsets[OFF_GN]  = 0x1050C4AB4;  // GName
+        gOffsets[OFF_VMC] = 0x106419D7C;  // ViewMatrix
 
         // ── World / level chain ───────────────────────────────────
         gOffsets[OFF_PL]  = 0xAF0;      // PersistentLevel actors array base
