@@ -1657,11 +1657,9 @@ static void Launch(void) {
             });
         };
 
-        RavLoginView *lv = [[RavLoginView alloc] initWithFrame:k.bounds];
-        lv.onSuccess = showSplash;
-        lv.alpha = 0;
-        [k addSubview:lv]; [k bringSubviewToFront:lv];
-        [UIView animateWithDuration:0.35 animations:^{ lv.alpha = 1; }];
+        // Auto-activate: no separate cheat login required.
+        // The player already authenticated with PUBG (Google/Facebook/etc.).
+        showSplash();
     });
 }
 
