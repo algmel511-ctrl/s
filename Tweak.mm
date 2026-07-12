@@ -1,4 +1,4 @@
-// ====================================================================
+//====================================================================
 // RavFen Shadow v7.1 - PUBG Mobile 4.5.0 iOS Tweak
 // جميع الأوفستات مؤكدة | Aimbot | ESP | 120 FPS | قائمة هيبة
 // Fixed: Build errors, ESP+Aimbot always running, redesigned menu
@@ -61,7 +61,8 @@ typedef struct {
     volatile BOOL       espBulletLine;
     volatile float      espDistance;
     volatile BOOL       menuVisible;
-    volatile BOOL       fps120Enabled;
+    volatile BOOL       crosshairEnabled;
+    volatile float      aimbotSmoothing;
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -338,33 +339,6 @@ static void DoAimbot(NSArray *players) {
 }
 
 // ====================================================================
-// ⚡ 120 FPS
-// ====================================================================
-static void SetFPS120(void) {
-    BOOL en = NO;
-    pthread_mutex_lock(&g_ConfigMutex); en = gConfig.fps120Enabled; pthread_mutex_unlock(&g_ConfigMutex);
-    if (!en) return;
-    uint64_t base = GetBaseAddress();
-    static uint64_t addr = 0;
-    static dispatch_once_t ot;
-    dispatch_once(&ot, ^{
-        for (uint64_t a = base; a < base + 0x20000000; a += 8) {
-            float v = ReadFloat(a);
-            if (v == 30.0f || v == 60.0f) {
-                float nv = ReadFloat(a + 4);
-                if (nv == 0.0f || nv == 1.0f) { addr = a; break; }
-            }
-        }
-    });
-    if (addr) { WriteFloat(addr, 120.0f); WriteInt(addr + 0x10, 0); }
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (arc4random() % 3 + 5) * NSEC_PER_SEC),
-        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0),
-        ^{ SetFPS120(); }
-    );
-}
-
-// ====================================================================
 // 🛡️ Anti-Detach
 // ====================================================================
 static void *AntiDetachLoop(void *arg) {
@@ -392,61 +366,124 @@ static void *AntiDetachLoop(void *arg) {
 // ====================================================================
 @interface ESPOverlayView : UIView
 @property (nonatomic, strong) CAShapeLayer *boxLayer, *lineLayer, *bulletLineLayer;
-@property (nonatomic, strong) UILabel *infoLabel;
+@property (nonatomic, strong) CAShapeLayer *crosshairLayer;
+@property (nonatomic, strong) UILabel      *infoLabel;
+- (void)updateWithPlayers:(NSArray *)players;
 @end
 
-@implementation ESPOverlayView
+@implementation ESPOverlayView {
+    UILabel  *_wm;
+    NSTimer  *_wmTmr;
+    CGFloat   _wmAngle, _wmCX, _wmCY, _wmRX, _wmRY;
+}
 
 - (instancetype)initWithFrame:(CGRect)f {
     self = [super initWithFrame:f];
     if (!self) return nil;
-    self.backgroundColor     = [UIColor clearColor];
+    self.backgroundColor        = [UIColor clearColor];
     self.userInteractionEnabled = NO;
 
-    // Box layer — cyan outline
-    _boxLayer              = [CAShapeLayer layer];
-    _boxLayer.strokeColor  = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:0.9].CGColor;
-    _boxLayer.fillColor    = [UIColor colorWithRed:0.0 green:0.95 blue:1.0 alpha:0.05].CGColor;
-    _boxLayer.lineWidth    = 1.5f;
+    // Box layer — violet
+    _boxLayer             = [CAShapeLayer layer];
+    _boxLayer.strokeColor = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.00].CGColor;
+    _boxLayer.fillColor   = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.28].CGColor;
+    _boxLayer.lineWidth   = 1.2f;
     [self.layer addSublayer:_boxLayer];
 
-    // Line layer — yellow dashed
-    _lineLayer              = [CAShapeLayer layer];
-    _lineLayer.strokeColor  = [UIColor colorWithRed:1.0 green:0.9 blue:0.0 alpha:0.7].CGColor;
-    _lineLayer.lineWidth    = 1.0f;
-    _lineLayer.lineDashPattern = @[@4, @3];
+    // Skeleton line — gold dashed
+    _lineLayer                  = [CAShapeLayer layer];
+    _lineLayer.strokeColor      = [UIColor colorWithRed:0.984 green:0.749 blue:0.247 alpha:1.00].CGColor;
+    _lineLayer.lineWidth        = 0.8f;
+    _lineLayer.lineDashPattern  = @[@5, @3];
     [self.layer addSublayer:_lineLayer];
 
-    // Bullet line layer — hot red
-    _bulletLineLayer              = [CAShapeLayer layer];
-    _bulletLineLayer.strokeColor  = [UIColor colorWithRed:1.0 green:0.15 blue:0.15 alpha:0.85].CGColor;
-    _bulletLineLayer.lineWidth    = 2.0f;
+    // Bullet tracer — red
+    _bulletLineLayer             = [CAShapeLayer layer];
+    _bulletLineLayer.strokeColor = [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00].CGColor;
+    _bulletLineLayer.lineWidth   = 1.5f;
     [self.layer addSublayer:_bulletLineLayer];
 
+    // Crosshair — white, slightly dimmed, centre-screen
+    _crosshairLayer             = [CAShapeLayer layer];
+    _crosshairLayer.strokeColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.70].CGColor;
+    _crosshairLayer.lineWidth   = 1.2f;
+    _crosshairLayer.fillColor   = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.55].CGColor;
+    _crosshairLayer.hidden      = YES;
+    [self buildCrosshairForFrame:f];
+    [self.layer addSublayer:_crosshairLayer];
+
     // Info label
-    _infoLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 52, f.size.width, 20)];
+    _infoLabel               = [[UILabel alloc] initWithFrame:CGRectMake(0, 52, f.size.width, 18)];
     _infoLabel.textAlignment = NSTextAlignmentCenter;
-    _infoLabel.textColor     = [UIColor colorWithRed:0.0 green:1.0 blue:0.85 alpha:1.0];
-    _infoLabel.font          = [UIFont boldSystemFontOfSize:12];
+    _infoLabel.textColor     = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.00];
+    _infoLabel.font          = [UIFont boldSystemFontOfSize:10];
     _infoLabel.text          = @"";
     [self addSubview:_infoLabel];
+
+    // Watermark — "RavFen" orbits the screen very slowly (barely visible)
+    _wm                       = [[UILabel alloc] init];
+    _wm.text                  = @"RavFen";
+    _wm.textColor             = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.052];
+    _wm.font                  = [UIFont boldSystemFontOfSize:10];
+    _wm.userInteractionEnabled = NO;
+    [_wm sizeToFit];
+    [self addSubview:_wm];
+
+    _wmAngle = 0;
+    _wmCX = f.size.width  / 2.0;
+    _wmCY = f.size.height / 2.0;
+    _wmRX = f.size.width  * 0.37;
+    _wmRY = f.size.height * 0.37;
+
+    _wmTmr = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
+        if (!self.window) { [t invalidate]; return; }
+        _wmAngle += 0.006;
+        _wm.center    = CGPointMake(_wmCX + _wmRX * cosf(_wmAngle),
+                                    _wmCY + _wmRY * sinf(_wmAngle));
+        _wm.transform = CGAffineTransformMakeRotation(_wmAngle + (CGFloat)M_PI_2);
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:_wmTmr forMode:NSRunLoopCommonModes];
 
     return self;
 }
 
+- (void)buildCrosshairForFrame:(CGRect)f {
+    CGFloat cx  = f.size.width  / 2.0;
+    CGFloat cy  = f.size.height / 2.0;
+    CGFloat arm = 9.0;
+    CGFloat gap = 4.0;
+
+    UIBezierPath *p = [UIBezierPath bezierPath];
+    [p moveToPoint:CGPointMake(cx - arm - gap, cy)];
+    [p addLineToPoint:CGPointMake(cx - gap, cy)];
+    [p moveToPoint:CGPointMake(cx + gap, cy)];
+    [p addLineToPoint:CGPointMake(cx + arm + gap, cy)];
+    [p moveToPoint:CGPointMake(cx, cy - arm - gap)];
+    [p addLineToPoint:CGPointMake(cx, cy - gap)];
+    [p moveToPoint:CGPointMake(cx, cy + gap)];
+    [p addLineToPoint:CGPointMake(cx, cy + arm + gap)];
+    [p appendPath:[UIBezierPath bezierPathWithOvalInRect:CGRectMake(cx - 1.3, cy - 1.3, 2.6, 2.6)]];
+
+    _crosshairLayer.path = p.CGPath;
+}
+
 - (void)updateWithPlayers:(NSArray *)players {
-    BOOL espOn = NO, lineOn = NO, bulletOn = NO;
+    BOOL espOn = NO, lineOn = NO, bulletOn = NO, crossOn = NO;
     pthread_mutex_lock(&g_ConfigMutex);
-    espOn   = gConfig.espEnabled;
-    lineOn  = gConfig.espLine;
-    bulletOn= gConfig.espBulletLine;
+    espOn    = gConfig.espEnabled;
+    lineOn   = gConfig.espLine;
+    bulletOn = gConfig.espBulletLine;
+    crossOn  = gConfig.crosshairEnabled;
     pthread_mutex_unlock(&g_ConfigMutex);
 
     if (!espOn || !players || players.count == 0) {
-        self.boxLayer.path        = nil;
-        self.lineLayer.path       = nil;
-        self.bulletLineLayer.path = nil;
-        _infoLabel.text           = @"";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.boxLayer.path        = nil;
+            self.lineLayer.path       = nil;
+            self.bulletLineLayer.path = nil;
+            _infoLabel.text           = @"";
+            _crosshairLayer.hidden    = !crossOn;
+        });
         return;
     }
 
@@ -463,7 +500,6 @@ static void *AntiDetachLoop(void *arg) {
         if (sx < -60 || sx > sw + 60 || sy < -60 || sy > sh + 60) continue;
         visible++;
 
-        // Box proportional to distance
         float boxH = MAX(20.0f, MIN(120.0f, 8000.0f / p.distance));
         float boxW = boxH * 0.55f;
         CGRect box = CGRectMake(sx - boxW / 2.0f, sy - boxH, boxW, boxH);
@@ -483,8 +519,9 @@ static void *AntiDetachLoop(void *arg) {
         self.boxLayer.path        = bp.CGPath;
         self.lineLayer.path       = lp.CGPath;
         self.bulletLineLayer.path = blp.CGPath;
+        _crosshairLayer.hidden    = !crossOn;
         _infoLabel.text = visible > 0
-            ? [NSString stringWithFormat:@"[ %d ENEMY ]", visible]
+            ? [NSString stringWithFormat:@"[ %d ]", visible]
             : @"";
     });
 }
@@ -516,7 +553,7 @@ static void *AntiDetachLoop(void *arg) {
     _ov = overlay;
     _q  = dispatch_queue_create("ravfen.engine", DISPATCH_QUEUE_SERIAL);
     dispatch_async(dispatch_get_main_queue(), ^{
-        _t = [NSTimer scheduledTimerWithTimeInterval:0.016
+        _t = [NSTimer scheduledTimerWithTimeInterval:0.050
                                              repeats:YES
                                                block:^(NSTimer *timer) {
             dispatch_async(_q, ^{
@@ -571,9 +608,8 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 🎨 Helper — colored label
+// 🎨 Helper — coloured label
 // ====================================================================
-// ── Colour palette ────────────────────────────────────────────────────
 #define CLR_BG          [UIColor colorWithRed:0.055 green:0.055 blue:0.075 alpha:1.00]
 #define CLR_PANEL       [UIColor colorWithRed:0.08  green:0.08  blue:0.11  alpha:0.97]
 #define CLR_HDR         [UIColor colorWithRed:0.06  green:0.06  blue:0.09  alpha:1.00]
@@ -615,7 +651,6 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     self = [super initWithFrame:f];
     if (!self) return nil;
 
-    // Body — rounded square
     self.backgroundColor    = CLR_HDR;
     self.layer.cornerRadius = 14;
     self.layer.borderWidth  = 1.0;
@@ -625,7 +660,6 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     self.layer.shadowOpacity= 0.55;
     self.layer.shadowOffset = CGSizeMake(0, 0);
 
-    // Outer pulse ring (CALayer, no UIView clip)
     _ring = [CALayer layer];
     _ring.frame        = CGRectInset(self.bounds, -4, -4);
     _ring.cornerRadius = 18;
@@ -634,7 +668,6 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     _ring.opacity      = 0.5;
     [self.layer addSublayer:_ring];
 
-    // Monogram "RF"
     UILabel *mono = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, f.size.width, f.size.height - 12)];
     mono.text                  = @"RF";
     mono.textColor             = CLR_VIOLET;
@@ -643,7 +676,6 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     mono.userInteractionEnabled = NO;
     [self addSubview:mono];
 
-    // Small label under monogram
     UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height - 16, f.size.width, 12)];
     sub.text                  = @"WRAITH";
     sub.textColor             = CLR_MUTED;
@@ -652,14 +684,12 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     sub.userInteractionEnabled = NO;
     [self addSubview:sub];
 
-    // Gestures
     _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
     [self addGestureRecognizer:_pan];
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap)];
     [self addGestureRecognizer:tap];
     [_pan requireGestureRecognizerToFail:tap];
 
-    // Pulse animation
     _pulsePhase = 0;
     _pulse = [NSTimer scheduledTimerWithTimeInterval:0.04 repeats:YES block:^(NSTimer *t) {
         if (!self.superview) { [t invalidate]; return; }
@@ -693,25 +723,35 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// ◈ Menu View — WRAITH design
+// ◈ Menu View — WRAITH · Tabbed (AIMBOT | ESP | MEMORY)
 // ====================================================================
 @interface RavMenuView : UIView
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov;
 @end
 
 @implementation RavMenuView {
-    UISwitch           *_as, *_es, *_ls, *_bls;
-    UISegmentedControl *_ms;
-    UISlider           *_ss, *_ds;
-    UILabel            *_sv, *_dv;
-    UIButton           *_fps;
-    BOOL                _fc;
-    ESPOverlayView     *_ev;
+    NSInteger            _activeTab;
+    UIButton            *_tabBtns[3];
+    CALayer             *_tabIndicator;
+    UIView              *_pages[3];
+
+    UISwitch            *_as;
+    UISegmentedControl  *_ms;
+    UISlider            *_ss, *_smSlider;
+    UILabel             *_sv, *_smv;
+
+    UISwitch            *_es, *_ls, *_bls;
+    UISlider            *_ds;
+    UILabel             *_dv;
+
+    UISwitch            *_chs;
+    UILabel             *_srvStatus;
+
+    ESPOverlayView      *_ev;
     UIPanGestureRecognizer *_pan;
-    CGPoint             _startCenter;
+    CGPoint              _startCenter;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
 static UIView *Sep(CGFloat x, CGFloat y, CGFloat w) {
     UIView *v = [[UIView alloc] initWithFrame:CGRectMake(x, y, w, 0.5)];
     v.backgroundColor = CLR_SEP;
@@ -725,7 +765,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     return s;
 }
 
-// ── Init ─────────────────────────────────────────────────────────────
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov {
     self = [super initWithFrame:f];
     if (!self) return nil;
@@ -763,69 +802,48 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     pthread_mutex_lock(&g_ConfigMutex);
     _as.on  = gConfig.aimbotEnabled;
     _ss.value = gConfig.aimbotSpeed;
+    _smSlider.value = gConfig.aimbotSmoothing;
     _ms.selectedSegmentIndex = (NSInteger)(gConfig.aimbotMode - 1);
     _es.on  = gConfig.espEnabled;
     _ls.on  = gConfig.espLine;
     _bls.on = gConfig.espBulletLine;
     _ds.value = gConfig.espDistance;
-    _fc = gConfig.fps120Enabled;
+    _chs.on = gConfig.crosshairEnabled;
     pthread_mutex_unlock(&g_ConfigMutex);
-    [_sv setText:[NSString stringWithFormat:@"%.0f", _ss.value]];
-    [_dv setText:[NSString stringWithFormat:@"%.0fm", _ds.value]];
-    [self updateFPSButton];
-}
-
-- (void)updateFPSButton {
-    if (_fc) {
-        [_fps setTitle:@"ON" forState:UIControlStateNormal];
-        [_fps setTitleColor:CLR_GREEN forState:UIControlStateNormal];
-        _fps.backgroundColor   = CLR_GREEN_DIM;
-        _fps.layer.borderColor = CLR_GREEN.CGColor;
-    } else {
-        [_fps setTitle:@"OFF" forState:UIControlStateNormal];
-        [_fps setTitleColor:CLR_MUTED forState:UIControlStateNormal];
-        _fps.backgroundColor   = [UIColor colorWithRed:0.1 green:0.1 blue:0.14 alpha:1.0];
-        _fps.layer.borderColor = CLR_SEP.CGColor;
-    }
+    [_sv  setText:[NSString stringWithFormat:@"%.0f",   _ss.value]];
+    [_smv setText:[NSString stringWithFormat:@"%.0f%%", (_smSlider.value / 10.0f) * 100.0f]];
+    [_dv  setText:[NSString stringWithFormat:@"%.0fm",  _ds.value]];
 }
 
 - (void)buildUI {
-    CGFloat mw = self.bounds.size.width;
-    CGFloat pw = mw - 24;
-    CGFloat y  = 0;
+    CGFloat mw   = self.bounds.size.width;
+    CGFloat mh   = self.bounds.size.height;
+    CGFloat tabW = mw / 3.0;
 
     // ── Header ────────────────────────────────────────────
     UIView *hdr = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, 52)];
-    hdr.backgroundColor    = CLR_HDR;
-    hdr.layer.cornerRadius = 20;
-    // only top corners
+    hdr.backgroundColor     = CLR_HDR;
+    hdr.layer.cornerRadius  = 22;
     hdr.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
     [self addSubview:hdr];
 
-    // Brand pill badge  "RF"
     UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(14, 13, 28, 26)];
-    badge.text             = @"RF";
-    badge.textColor        = CLR_VIOLET;
-    badge.font             = [UIFont boldSystemFontOfSize:12];
-    badge.textAlignment    = NSTextAlignmentCenter;
-    badge.backgroundColor  = CLR_VIOLET_DIM;
+    badge.text               = @"RF";
+    badge.textColor          = CLR_VIOLET;
+    badge.font               = [UIFont boldSystemFontOfSize:12];
+    badge.textAlignment      = NSTextAlignmentCenter;
+    badge.backgroundColor    = CLR_VIOLET_DIM;
     badge.layer.cornerRadius = 8;
-    badge.clipsToBounds    = YES;
+    badge.clipsToBounds      = YES;
     [self addSubview:badge];
 
-    UILabel *ttl = RavLabel(@"RAVFEN  WRAITH",
-        [UIFont boldSystemFontOfSize:12], CLR_TEXT,
-        CGRectMake(50, 10, mw - 100, 17));
-    [self addSubview:ttl];
+    [self addSubview:RavLabel(@"RAVFEN  WRAITH",
+        [UIFont boldSystemFontOfSize:12], CLR_TEXT, CGRectMake(50, 10, mw - 100, 17))];
+    [self addSubview:RavLabel(@"v7.1  ·  PUBG 4.5.0",
+        [UIFont systemFontOfSize:9], CLR_MUTED, CGRectMake(50, 27, mw - 100, 14))];
 
-    UILabel *ver = RavLabel(@"v7.1  ·  PUBG 4.5.0",
-        [UIFont systemFontOfSize:9], CLR_MUTED,
-        CGRectMake(50, 27, mw - 100, 14));
-    [self addSubview:ver];
-
-    // Close ×
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(mw - 40, 14, 26, 24);
+    closeBtn.frame = CGRectMake(mw - 42, 14, 28, 24);
     [closeBtn setTitle:@"×" forState:UIControlStateNormal];
     [closeBtn setTitleColor:CLR_RED forState:UIControlStateNormal];
     closeBtn.titleLabel.font    = [UIFont systemFontOfSize:20];
@@ -834,131 +852,211 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:closeBtn];
 
-    y = 60;
+    // ── Tab Bar ───────────────────────────────────────────
+    NSArray *tabNames  = @[@"AIMBOT", @"ESP", @"MEMORY"];
+    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN];
 
-    // ── AIMBOT section ────────────────────────────────────
-    UILabel *aimHdr = RavLabel(@"AIMBOT",
-        [UIFont boldSystemFontOfSize:9.5], CLR_GOLD,
-        CGRectMake(14, y, 80, 14));
-    [self addSubview:aimHdr];
+    for (int i = 0; i < 3; i++) {
+        UIButton *tb = [UIButton buttonWithType:UIButtonTypeSystem];
+        tb.frame = CGRectMake(i * tabW, 52, tabW, 36);
+        [tb setTitle:tabNames[i] forState:UIControlStateNormal];
+        tb.titleLabel.font = [UIFont boldSystemFontOfSize:10];
+        [tb setTitleColor:(i == 0 ? tabColors[i] : CLR_MUTED) forState:UIControlStateNormal];
+        tb.tag = i;
+        [tb addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:tb];
+        _tabBtns[i] = tb;
+    }
 
+    _tabIndicator                 = [CALayer layer];
+    _tabIndicator.backgroundColor = CLR_GOLD.CGColor;
+    _tabIndicator.frame           = CGRectMake(6, 85, tabW - 12, 2);
+    _tabIndicator.cornerRadius    = 1;
+    [self.layer addSublayer:_tabIndicator];
+
+    [self addSubview:Sep(0, 88, mw)];
+
+    CGFloat pageH = mh - 89;
+    CGRect  pageR = CGRectMake(0, 89, mw, pageH);
+
+    [self buildAimbotPage:pageR];
+    [self buildEspPage:pageR];
+    [self buildMemoryPage:pageR];
+
+    _pages[1].hidden = YES;
+    _pages[2].hidden = YES;
+}
+
+- (void)buildAimbotPage:(CGRect)fr {
+    UIView *page = [[UIView alloc] initWithFrame:fr];
+    _pages[0] = page;
+    [self addSubview:page];
+    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
+
+    [page addSubview:RavLabel(@"AIMBOT", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
+                              CGRectMake(14, y, 80, 14))];
     _as = StyledSwitch(CLR_GOLD);
     _as.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_as addTarget:self action:@selector(tgA) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_as];
-    y += 20;
+    [page addSubview:_as];
+    y += 24;
 
-    // Mode picker
     _ms = [[UISegmentedControl alloc] initWithItems:@[@"Lock", @"Fire", @"Scope"]];
-    _ms.frame                = CGRectMake(12, y, pw, 27);
+    _ms.frame = CGRectMake(12, y, pw, 27);
     _ms.selectedSegmentIndex = 0;
-    _ms.backgroundColor      = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0];
+    _ms.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0];
     [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_MUTED,
                                    NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
                        forState:UIControlStateNormal];
     [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_GOLD,
                                    NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
                        forState:UIControlStateSelected];
-    if (@available(iOS 13.0, *)) {
-        _ms.selectedSegmentTintColor = CLR_GOLD_DIM;
-    }
+    if (@available(iOS 13.0, *)) { _ms.selectedSegmentTintColor = CLR_GOLD_DIM; }
     [_ms addTarget:self action:@selector(mCh) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_ms];
-    y += 33;
+    [page addSubview:_ms];
+    y += 34;
 
-    // Speed row
-    UILabel *spLbl = RavLabel(@"Speed", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y, 50, 15));
-    [self addSubview:spLbl];
+    [page addSubview:RavLabel(@"Speed", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y, 50, 14))];
     _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
-                   CGRectMake(mw - 38, y, 28, 15));
+                   CGRectMake(mw - 38, y, 28, 14));
     _sv.textAlignment = NSTextAlignmentRight;
-    [self addSubview:_sv];
-    y += 15;
-
+    [page addSubview:_sv];
+    y += 14;
     _ss = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
-    _ss.minimumValue         = 1; _ss.maximumValue = 150; _ss.value = 120;
+    _ss.minimumValue = 1; _ss.maximumValue = 150; _ss.value = 120;
     _ss.minimumTrackTintColor = CLR_GOLD;
     _ss.maximumTrackTintColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
     [_ss addTarget:self action:@selector(sCh) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_ss];
-    y += 24;
+    [page addSubview:_ss];
+    y += 28;
 
-    [self addSubview:Sep(12, y, pw)]; y += 12;
+    [page addSubview:Sep(12, y, pw)]; y += 14;
 
-    // ── ESP section ───────────────────────────────────────
-    UILabel *espHdr = RavLabel(@"ESP",
-        [UIFont boldSystemFontOfSize:9.5], CLR_VIOLET,
-        CGRectMake(14, y, 60, 14));
-    [self addSubview:espHdr];
+    [page addSubview:RavLabel(@"Smoothing", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y, 70, 14))];
+    _smv = RavLabel(@"50%", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
+                    CGRectMake(mw - 38, y, 28, 14));
+    _smv.textAlignment = NSTextAlignmentRight;
+    [page addSubview:_smv];
+    y += 14;
+    _smSlider = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
+    _smSlider.minimumValue = 0; _smSlider.maximumValue = 10; _smSlider.value = 5;
+    _smSlider.minimumTrackTintColor = CLR_GOLD;
+    _smSlider.maximumTrackTintColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
+    [_smSlider addTarget:self action:@selector(smCh) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_smSlider];
+    y += 28;
 
+    UILabel *hint = RavLabel(@"Higher smoothing = more natural movement",
+        [UIFont systemFontOfSize:8.5], CLR_MUTED, CGRectMake(14, y, pw, 28));
+    hint.numberOfLines = 2;
+    [page addSubview:hint];
+}
+
+- (void)buildEspPage:(CGRect)fr {
+    UIView *page = [[UIView alloc] initWithFrame:fr];
+    _pages[1] = page;
+    [self addSubview:page];
+    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
+
+    [page addSubview:RavLabel(@"ESP", [UIFont boldSystemFontOfSize:10], CLR_VIOLET,
+                              CGRectMake(14, y, 50, 14))];
     _es = StyledSwitch(CLR_VIOLET);
     _es.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_es addTarget:self action:@selector(tgE) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_es];
-    y += 22;
+    [page addSubview:_es];
+    y += 30;
 
-    // Lines
-    [self addSubview:RavLabel(@"Skeleton Lines", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y + 2, 110, 15))];
+    [page addSubview:RavLabel(@"Skeleton Lines", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y + 4, 110, 14))];
     _ls = StyledSwitch(CLR_GREEN);
-    _ls.frame = CGRectMake(mw - 58, y - 1, 51, 28);
+    _ls.frame = CGRectMake(mw - 58, y, 51, 28);
     [_ls addTarget:self action:@selector(tgL) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_ls];
-    y += 22;
+    [page addSubview:_ls];
+    y += 28;
 
-    // Bullet
-    [self addSubview:RavLabel(@"Bullet Tracer", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y + 2, 100, 15))];
+    [page addSubview:RavLabel(@"Bullet Tracer", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y + 4, 100, 14))];
     _bls = StyledSwitch(CLR_RED);
-    _bls.frame = CGRectMake(mw - 58, y - 1, 51, 28);
+    _bls.frame = CGRectMake(mw - 58, y, 51, 28);
     [_bls addTarget:self action:@selector(tgB) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_bls];
-    y += 22;
+    [page addSubview:_bls];
+    y += 30;
 
-    // Distance row
-    UILabel *dLbl = RavLabel(@"Distance", [UIFont systemFontOfSize:10], CLR_MUTED,
-                             CGRectMake(14, y, 60, 15));
-    [self addSubview:dLbl];
+    [page addSubview:Sep(12, y, pw)]; y += 14;
+
+    [page addSubview:RavLabel(@"Max Distance", [UIFont systemFontOfSize:10], CLR_MUTED,
+                              CGRectMake(14, y, 90, 14))];
     _dv = RavLabel(@"200m", [UIFont boldSystemFontOfSize:10], CLR_VIOLET,
-                   CGRectMake(mw - 42, y, 32, 15));
+                   CGRectMake(mw - 42, y, 32, 14));
     _dv.textAlignment = NSTextAlignmentRight;
-    [self addSubview:_dv];
-    y += 15;
-
+    [page addSubview:_dv];
+    y += 14;
     _ds = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
-    _ds.minimumValue         = 50; _ds.maximumValue = 350; _ds.value = 200;
+    _ds.minimumValue = 50; _ds.maximumValue = 350; _ds.value = 200;
     _ds.minimumTrackTintColor = CLR_VIOLET;
     _ds.maximumTrackTintColor = [UIColor colorWithRed:0.12 green:0.10 blue:0.16 alpha:1.0];
     [_ds addTarget:self action:@selector(dCh) forControlEvents:UIControlEventValueChanged];
-    [self addSubview:_ds];
-    y += 24;
+    [page addSubview:_ds];
+}
 
-    [self addSubview:Sep(12, y, pw)]; y += 12;
+- (void)buildMemoryPage:(CGRect)fr {
+    UIView *page = [[UIView alloc] initWithFrame:fr];
+    _pages[2] = page;
+    [self addSubview:page];
+    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
 
-    // ── SYSTEM section ────────────────────────────────────
-    UILabel *sysHdr = RavLabel(@"SYSTEM",
-        [UIFont boldSystemFontOfSize:9.5], CLR_MUTED,
-        CGRectMake(14, y, 60, 14));
-    [self addSubview:sysHdr];
-    y += 18;
+    [page addSubview:RavLabel(@"MEMORY", [UIFont boldSystemFontOfSize:10], CLR_GREEN,
+                              CGRectMake(14, y, 80, 14))];
+    y += 26;
 
-    // 120 FPS row
-    [self addSubview:RavLabel(@"120 FPS Unlock", [UIFont systemFontOfSize:10], CLR_TEXT,
-                              CGRectMake(14, y + 1, 130, 16))];
-    _fps = [UIButton buttonWithType:UIButtonTypeSystem];
-    _fps.frame               = CGRectMake(mw - 52, y, 40, 20);
-    _fps.titleLabel.font     = [UIFont boldSystemFontOfSize:10];
-    _fps.layer.cornerRadius  = 6;
-    _fps.layer.borderWidth   = 1;
-    _fps.clipsToBounds       = YES;
-    [_fps addTarget:self action:@selector(tgF) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:_fps];
-    y += 28;
+    UIView *chCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 44)];
+    chCard.backgroundColor   = [UIColor colorWithRed:0.09 green:0.10 blue:0.13 alpha:1.0];
+    chCard.layer.cornerRadius = 12;
+    [page addSubview:chCard];
 
-    // Telegram
+    UILabel *chH = [[UILabel alloc] initWithFrame:CGRectMake(7, 16, 16, 2)];
+    chH.backgroundColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.65];
+    chH.layer.cornerRadius = 1; chH.clipsToBounds = YES;
+    [chCard addSubview:chH];
+    UILabel *chV = [[UILabel alloc] initWithFrame:CGRectMake(14, 9, 2, 16)];
+    chV.backgroundColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.65];
+    chV.layer.cornerRadius = 1; chV.clipsToBounds = YES;
+    [chCard addSubview:chV];
+
+    [chCard addSubview:RavLabel(@"Crosshair Overlay",
+        [UIFont boldSystemFontOfSize:10], CLR_TEXT, CGRectMake(34, 8, pw - 90, 14))];
+    [chCard addSubview:RavLabel(@"Precision aim guide",
+        [UIFont systemFontOfSize:8.5], CLR_MUTED, CGRectMake(34, 23, pw - 90, 12))];
+
+    _chs = StyledSwitch([UIColor colorWithRed:1 green:1 blue:1 alpha:0.80]);
+    _chs.frame = CGRectMake(pw - 46, 8, 51, 28);
+    [_chs addTarget:self action:@selector(tgCH) forControlEvents:UIControlEventValueChanged];
+    [chCard addSubview:_chs];
+    y += 54;
+
+    [page addSubview:Sep(12, y, pw)]; y += 14;
+
+    UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 32)];
+    srvCard.backgroundColor   = [UIColor colorWithRed:0.06 green:0.11 blue:0.08 alpha:1.0];
+    srvCard.layer.cornerRadius = 10;
+    [page addSubview:srvCard];
+
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(12, 12, 8, 8)];
+    dot.backgroundColor    = CLR_GREEN;
+    dot.layer.cornerRadius = 4;
+    [srvCard addSubview:dot];
+
+    _srvStatus = RavLabel(@"PROTECTED",
+        [UIFont boldSystemFontOfSize:9], CLR_GREEN, CGRectMake(26, 10, pw - 34, 12));
+    [srvCard addSubview:_srvStatus];
+    y += 44;
+
+    [page addSubview:Sep(12, y, pw)]; y += 14;
+
     UIButton *tgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    tgBtn.frame = CGRectMake(12, y, pw, 30);
+    tgBtn.frame = CGRectMake(12, y, pw, 32);
     [tgBtn setTitle:@"▸  t.me/RavFenupdate" forState:UIControlStateNormal];
     [tgBtn setTitleColor:CLR_VIOLET forState:UIControlStateNormal];
     tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:10];
@@ -967,33 +1065,62 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     tgBtn.layer.borderWidth  = 1;
     tgBtn.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
     [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:tgBtn];
+    [page addSubview:tgBtn];
 }
 
-// ── Actions ──────────────────────────────────────────────────────────
+- (void)tabTapped:(UIButton *)sender {
+    NSInteger idx = sender.tag;
+    if (idx == _activeTab) return;
+    NSInteger prev = _activeTab;
+    _activeTab = idx;
+    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN];
+    CGFloat  tabW      = self.bounds.size.width / 3.0;
+
+    for (int i = 0; i < 3; i++)
+        [_tabBtns[i] setTitleColor:(i == idx ? tabColors[i] : CLR_MUTED) forState:UIControlStateNormal];
+
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:0.20];
+    [CATransaction setAnimationTimingFunction:
+        [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut]];
+    _tabIndicator.frame           = CGRectMake(idx * tabW + 6, 85, tabW - 12, 2);
+    _tabIndicator.backgroundColor = ((UIColor *)tabColors[idx]).CGColor;
+    [CATransaction commit];
+
+    UIView *outPage = _pages[prev];
+    UIView *inPage  = _pages[idx];
+    inPage.alpha  = 0;
+    inPage.hidden = NO;
+    [UIView animateWithDuration:0.20 animations:^{ outPage.alpha = 0; } completion:^(BOOL d) {
+        outPage.hidden = YES;
+        [UIView animateWithDuration:0.20 animations:^{ inPage.alpha = 1; }];
+    }];
+}
+
 - (void)openTG { [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/RavFenupdate"] options:@{} completionHandler:nil]; }
-- (void)tgA    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotEnabled  = _as.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)tgE    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espEnabled     = _es.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)tgL    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espLine        = _ls.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgA    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotEnabled  = _as.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgE    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espEnabled     = _es.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgL    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espLine        = _ls.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgB    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espBulletLine  = _bls.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgCH   { pthread_mutex_lock(&g_ConfigMutex); gConfig.crosshairEnabled = _chs.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)mCh    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotMode     = (AimbotMode)(_ms.selectedSegmentIndex + 1); pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)sCh {
     float v = _ss.value;
     pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotSpeed = v; pthread_mutex_unlock(&g_ConfigMutex);
     dispatch_async(dispatch_get_main_queue(), ^{ [_sv setText:[NSString stringWithFormat:@"%.0f", v]]; });
 }
+- (void)smCh {
+    float v = _smSlider.value;
+    pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotSmoothing = v; pthread_mutex_unlock(&g_ConfigMutex);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [_smv setText:[NSString stringWithFormat:@"%.0f%%", (v / 10.0f) * 100.0f]];
+    });
+}
 - (void)dCh {
     float v = _ds.value;
     pthread_mutex_lock(&g_ConfigMutex); gConfig.espDistance = v; pthread_mutex_unlock(&g_ConfigMutex);
     dispatch_async(dispatch_get_main_queue(), ^{ [_dv setText:[NSString stringWithFormat:@"%.0fm", v]]; });
 }
-- (void)tgF {
-    _fc = !_fc;
-    pthread_mutex_lock(&g_ConfigMutex); gConfig.fps120Enabled = _fc; pthread_mutex_unlock(&g_ConfigMutex);
-    [self updateFPSButton];
-    if (_fc) dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{ SetFPS120(); });
-}
-
 - (void)hide {
     pthread_mutex_lock(&g_ConfigMutex); gConfig.menuVisible = NO; pthread_mutex_unlock(&g_ConfigMutex);
     [UIView animateWithDuration:0.25 animations:^{
@@ -1027,8 +1154,8 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
 - (void)showFloatingButtonIn:(UIWindow *)k {
     RavFloatingButton *fb = [[RavFloatingButton alloc]
-        initWithFrame:CGRectMake(k.bounds.size.width - 56 - 10,
-                                 k.bounds.size.height * 0.52, 56, 56)];
+        initWithFrame:CGRectMake(k.bounds.size.width - 66 - 14,
+                                 k.bounds.size.height * 0.52, 66, 66)];
     fb.alpha = 0;
     __weak typeof(fb) wfb = fb;
     __weak typeof(self) ws = self;
@@ -1039,9 +1166,9 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
 - (void)presentMenuIn:(UIWindow *)k {
     RavMenuView *m = [[RavMenuView alloc]
-        initWithFrame:CGRectMake((k.bounds.size.width  - 245) / 2.0,
-                                 (k.bounds.size.height - 360) / 2.0,
-                                 245, 360)
+        initWithFrame:CGRectMake((k.bounds.size.width  - 300) / 2.0,
+                                 (k.bounds.size.height - 480) / 2.0,
+                                 300, 480)
           overlayView:_ev];
     m.alpha     = 0;
     m.transform = CGAffineTransformMakeScale(0.88, 0.88);
@@ -1071,7 +1198,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
     CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.42;
 
-    // Outer hex ring via CAShapeLayer
     CGFloat hex = 68;
     UIBezierPath *hexPath = [UIBezierPath bezierPath];
     for (int i = 0; i < 6; i++) {
@@ -1089,7 +1215,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     ring.opacity     = 0;
     [self.layer addSublayer:ring];
 
-    // Inner hex (dimmer, smaller)
     CGFloat hex2 = 44;
     UIBezierPath *hexPath2 = [UIBezierPath bezierPath];
     for (int i = 0; i < 6; i++) {
@@ -1107,7 +1232,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     ring2.opacity     = 0;
     [self.layer addSublayer:ring2];
 
-    // Monogram — no boring "R", use the brand initials stacked
     UILabel *mono = [[UILabel alloc] initWithFrame:CGRectMake(cx - 30, cy - 22, 60, 44)];
     mono.text          = @"RF";
     mono.textColor     = CLR_VIOLET;
@@ -1116,7 +1240,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     mono.alpha         = 0;
     [self addSubview:mono];
 
-    // Brand name
     UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 90, f.size.width, 28)];
     name.text          = @"RAVFEN  WRAITH";
     name.textColor     = CLR_TEXT;
@@ -1125,7 +1248,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     name.alpha         = 0;
     [self addSubview:name];
 
-    // Version
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 120, f.size.width, 20)];
     ver.text          = @"v7.1  ·  PUBG Mobile 4.5.0";
     ver.textColor     = CLR_MUTED;
@@ -1134,14 +1256,12 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     ver.alpha         = 0;
     [self addSubview:ver];
 
-    // Thin bottom line accent
     UIView *line = [[UIView alloc] initWithFrame:CGRectMake(f.size.width * 0.3, f.size.height - 60,
                                                             f.size.width * 0.4, 0.5)];
     line.backgroundColor = CLR_VIOLET;
     line.alpha           = 0;
     [self addSubview:line];
 
-    // Animations
     [UIView animateWithDuration:0.6 delay:0.1 options:0 animations:^{
         ring.opacity  = 1.0;
         ring2.opacity = 0.6;
@@ -1175,14 +1295,12 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
     CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.45;
 
-    // Pulsing dot
     _dot = [CALayer layer];
     _dot.frame        = CGRectMake(cx - 5, cy - 5, 10, 10);
     _dot.cornerRadius = 5;
     _dot.backgroundColor = CLR_VIOLET.CGColor;
     [self.layer addSublayer:_dot];
 
-    // Outer ripple ring (static, low opacity)
     CALayer *ripple = [CALayer layer];
     ripple.frame           = CGRectMake(cx - 20, cy - 20, 40, 40);
     ripple.cornerRadius    = 20;
@@ -1192,7 +1310,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     ripple.opacity         = 0.3;
     [self.layer addSublayer:ripple];
 
-    // Label
     UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 44, f.size.width, 26)];
     lbl.text          = @"TOUCH  TO  ARM";
     lbl.textColor     = CLR_TEXT;
@@ -1213,7 +1330,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
                      animations:^{ lbl.alpha = 1; sub.alpha = 0.7; }
                      completion:nil];
 
-    // Dot pulse timer
     _dotPhase = 0;
     _dotTimer = [NSTimer scheduledTimerWithTimeInterval:0.04 repeats:YES block:^(NSTimer *t) {
         if (!self.superview) { [t invalidate]; return; }
@@ -1250,6 +1366,235 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 @end
 
 // ====================================================================
+// 🔑 RavFen Server Auth — POST credentials to your own server
+// ====================================================================
+//
+//  ► غيّر RAV_AUTH_HOST إلى رابط سيرفرك الحقيقي
+//  ► السيرفر يستقبل POST على /v1/login بـ JSON: {"username":"...","password":"..."}
+//  ► يرجع { "ok": true, "token": "..." } أو { "ok": false, "msg": "..." }
+//
+#define RAV_AUTH_HOST   "147.135.213.72"              // ← ضع رابط سيرفرك هنا
+#define RAV_AUTH_PATH   ":3000/v1/login"
+
+static void RavAuthLogin(NSString *user, NSString *pass,
+                         void(^done)(BOOL ok, NSString *msg)) {
+    static const uint8_t rawHost[] = {
+        0x00
+    };
+    (void)rawHost;
+
+    NSString *host    = @(RAV_AUTH_HOST);
+    NSString *urlStr  = [NSString stringWithFormat:@"https://%@%s", host, RAV_AUTH_PATH];
+    NSURL    *url     = [NSURL URLWithString:urlStr];
+    if (!url) { dispatch_async(dispatch_get_main_queue(), ^{ done(NO, @"Bad URL"); }); return; }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest
+        requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:10.0];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15"
+       forHTTPHeaderField:@"User-Agent"];
+
+    NSDictionary *body = @{@"username": user, @"password": pass};
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+
+    [[NSURLSession.sharedSession
+        dataTaskWithRequest:req
+        completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
+            if (e || !d) {
+                dispatch_async(dispatch_get_main_queue(), ^{ done(NO, @"No connection"); });
+                return;
+            }
+            NSHTTPURLResponse *http = (NSHTTPURLResponse *)r;
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+            BOOL ok  = (http.statusCode == 200 && [json[@"ok"] boolValue]);
+            NSString *tok = json[@"token"] ?: @"";
+            NSString *msg = json[@"msg"]   ?: (ok ? @"OK" : @"Unauthorized");
+            if (ok && tok.length) {
+                [[NSUserDefaults standardUserDefaults] setObject:tok forKey:@"rav_tok"];
+                [[NSUserDefaults standardUserDefaults] synchronize];
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{ done(ok, msg); });
+    }] resume];
+}
+
+// ====================================================================
+// 🔑 Login Screen — shown before splash; authenticates against your server
+// ====================================================================
+@interface RavLoginView : UIView
+@property (nonatomic, copy) void (^onSuccess)(void);
+@end
+
+@implementation RavLoginView {
+    UITextField *_userF, *_passF;
+    UIButton    *_loginBtn;
+    UILabel     *_statusLbl;
+    UIActivityIndicatorView *_spinner;
+}
+
+- (instancetype)initWithFrame:(CGRect)f {
+    self = [super initWithFrame:f];
+    if (!self) return nil;
+    self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
+
+    CGFloat cx  = f.size.width  * 0.5;
+    CGFloat top = f.size.height * 0.22;
+
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(cx - 28, top, 56, 52)];
+    badge.text              = @"RF";
+    badge.textColor         = CLR_VIOLET;
+    badge.font              = [UIFont boldSystemFontOfSize:24];
+    badge.textAlignment     = NSTextAlignmentCenter;
+    badge.backgroundColor   = CLR_VIOLET_DIM;
+    badge.layer.cornerRadius = 16;
+    badge.clipsToBounds     = YES;
+    [self addSubview:badge];
+
+    UILabel *brand = [[UILabel alloc] initWithFrame:CGRectMake(0, top + 58, f.size.width, 22)];
+    brand.text          = @"RAVFEN  WRAITH";
+    brand.textColor     = CLR_TEXT;
+    brand.font          = [UIFont boldSystemFontOfSize:16];
+    brand.textAlignment = NSTextAlignmentCenter;
+    [self addSubview:brand];
+
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(0, top + 82, f.size.width, 16)];
+    sub.text          = @"Sign in to continue";
+    sub.textColor     = CLR_MUTED;
+    sub.font          = [UIFont systemFontOfSize:11];
+    sub.textAlignment = NSTextAlignmentCenter;
+    [self addSubview:sub];
+
+    CGFloat fw = MIN(f.size.width - 60, 280);
+    CGFloat fx = (f.size.width - fw) / 2.0;
+    CGFloat fy = top + 118;
+
+    _userF = [self makeField:@"Username" secure:NO  frame:CGRectMake(fx, fy, fw, 44)];
+    [self addSubview:_userF];
+
+    _passF = [self makeField:@"Password" secure:YES frame:CGRectMake(fx, fy + 54, fw, 44)];
+    [self addSubview:_passF];
+
+    _loginBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    _loginBtn.frame = CGRectMake(fx, fy + 116, fw, 46);
+    [_loginBtn setTitle:@"LOGIN" forState:UIControlStateNormal];
+    [_loginBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    _loginBtn.titleLabel.font  = [UIFont boldSystemFontOfSize:13];
+    _loginBtn.backgroundColor  = CLR_VIOLET;
+    _loginBtn.layer.cornerRadius = 12;
+    _loginBtn.clipsToBounds    = YES;
+    [_loginBtn addTarget:self action:@selector(doLogin)
+        forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:_loginBtn];
+
+    _statusLbl = [[UILabel alloc] initWithFrame:CGRectMake(fx, fy + 170, fw, 18)];
+    _statusLbl.textAlignment = NSTextAlignmentCenter;
+    _statusLbl.font          = [UIFont systemFontOfSize:10];
+    _statusLbl.textColor     = CLR_MUTED;
+    _statusLbl.text          = @"";
+    [self addSubview:_statusLbl];
+
+    _spinner = [[UIActivityIndicatorView alloc]
+        initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    _spinner.color  = CLR_VIOLET;
+    _spinner.center = CGPointMake(cx, fy + 139);
+    _spinner.hidden = YES;
+    [self addSubview:_spinner];
+
+    UIButton *tgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    tgBtn.frame = CGRectMake(fx, f.size.height - 70, fw, 24);
+    [tgBtn setTitle:@"▸  t.me/RavFenupdate" forState:UIControlStateNormal];
+    [tgBtn setTitleColor:CLR_VIOLET forState:UIControlStateNormal];
+    tgBtn.titleLabel.font = [UIFont systemFontOfSize:10];
+    [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:tgBtn];
+
+    return self;
+}
+
+- (UITextField *)makeField:(NSString *)ph secure:(BOOL)sec frame:(CGRect)fr {
+    UITextField *f     = [[UITextField alloc] initWithFrame:fr];
+    f.placeholder      = ph;
+    f.secureTextEntry  = sec;
+    f.autocorrectionType   = UITextAutocorrectionTypeNo;
+    f.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    f.returnKeyType    = sec ? UIReturnKeyGo : UIReturnKeyNext;
+    f.backgroundColor  = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0];
+    f.textColor        = CLR_TEXT;
+    f.font             = [UIFont systemFontOfSize:13];
+    f.layer.cornerRadius = 10;
+    f.layer.borderWidth  = 1.0;
+    f.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
+    f.clipsToBounds      = YES;
+    UIView *pad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 14, 1)];
+    f.leftView      = pad;
+    f.leftViewMode  = UITextFieldViewModeAlways;
+    UIView *rpad = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 14, 1)];
+    f.rightView     = rpad;
+    f.rightViewMode = UITextFieldViewModeAlways;
+    NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
+    attrs[NSForegroundColorAttributeName] = CLR_MUTED;
+    f.attributedPlaceholder = [[NSAttributedString alloc]
+        initWithString:ph attributes:attrs];
+    return f;
+}
+
+- (void)doLogin {
+    NSString *user = [_userF.text stringByTrimmingCharactersInSet:
+        [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *pass = _passF.text ?: @"";
+    if (user.length < 1) {
+        [self showStatus:@"Enter your username" color:CLR_RED];
+        return;
+    }
+    if (pass.length < 1) {
+        [self showStatus:@"Enter your password" color:CLR_RED];
+        return;
+    }
+    [_userF resignFirstResponder];
+    [_passF resignFirstResponder];
+    _loginBtn.enabled = NO;
+    _spinner.hidden   = NO;
+    [_spinner startAnimating];
+    [self showStatus:@"Connecting…" color:CLR_MUTED];
+
+    __weak typeof(self) ws = self;
+    RavAuthLogin(user, pass, ^(BOOL ok, NSString *msg) {
+        [ws->_spinner stopAnimating];
+        ws->_spinner.hidden   = YES;
+        ws->_loginBtn.enabled = YES;
+        if (ok) {
+            [ws showStatus:@"Authenticated ✓" color:CLR_GREEN];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC),
+                           dispatch_get_main_queue(), ^{
+                [UIView animateWithDuration:0.35 animations:^{ ws.alpha = 0; }
+                                 completion:^(BOOL d) {
+                    [ws removeFromSuperview];
+                    if (ws.onSuccess) ws.onSuccess();
+                }];
+            });
+        } else {
+            [ws showStatus:msg ?: @"Login failed" color:CLR_RED];
+            [UIView animateWithDuration:0.06 delay:0 options:UIViewAnimationOptionAutoreverse
+                animations:^{ ws->_loginBtn.transform = CGAffineTransformMakeTranslation(6, 0); }
+                completion:^(BOOL d) { ws->_loginBtn.transform = CGAffineTransformIdentity; }];
+        }
+    });
+}
+
+- (void)showStatus:(NSString *)s color:(UIColor *)c {
+    _statusLbl.text      = s;
+    _statusLbl.textColor = c;
+}
+
+- (void)openTG {
+    [[UIApplication sharedApplication]
+        openURL:[NSURL URLWithString:@"https://t.me/RavFenupdate"]
+        options:@{} completionHandler:nil];
+}
+
+@end
+
+// ====================================================================
 // 🚀 Launch
 // ====================================================================
 static void Launch(void) {
@@ -1264,51 +1609,56 @@ static void Launch(void) {
         }
         if (!k) return;
 
-        // Splash
-        RavSplashView *sp = [[RavSplashView alloc] initWithFrame:k.bounds];
-        [k addSubview:sp]; [k bringSubviewToFront:sp];
+        void (^showSplash)(void) = ^{
+            RavSplashView *sp = [[RavSplashView alloc] initWithFrame:k.bounds];
+            [k addSubview:sp]; [k bringSubviewToFront:sp];
 
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (arc4random() % 2 + 3) * NSEC_PER_SEC),
-                       dispatch_get_main_queue(), ^{
-            [UIView animateWithDuration:0.4 animations:^{ sp.alpha = 0; }
-                             completion:^(BOOL d) {
-                [sp removeFromSuperview];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (arc4random() % 2 + 3) * NSEC_PER_SEC),
+                           dispatch_get_main_queue(), ^{
+                [UIView animateWithDuration:0.4 animations:^{ sp.alpha = 0; }
+                                 completion:^(BOOL d) {
+                    [sp removeFromSuperview];
 
-                // Captcha
-                RavCaptchaView *cp = [[RavCaptchaView alloc] initWithFrame:k.bounds];
-                cp.onDone = ^{
-                    // Floating button
-                    RavFloatingButton *fb = [[RavFloatingButton alloc]
-                        initWithFrame:CGRectMake(k.bounds.size.width - 56 - 10,
-                                                 k.bounds.size.height * 0.52, 56, 56)];
-                    fb.alpha = 0;
-                    __weak typeof(fb) wfb = fb;
-                    fb.onTap = ^{
-                        [wfb removeFromSuperview];
-                        ESPOverlayView *ov = [[ESPManager shared] getOverlayView];
-                        RavMenuView *m = [[RavMenuView alloc]
-                            initWithFrame:CGRectMake((k.bounds.size.width  - 245) / 2.0,
-                                                     (k.bounds.size.height - 360) / 2.0,
-                                                     245, 360)
-                              overlayView:ov];
-                        m.alpha     = 0;
-                        m.transform = CGAffineTransformMakeScale(0.88, 0.88);
-                        [k addSubview:m]; [k bringSubviewToFront:m];
-                        pthread_mutex_lock(&g_ConfigMutex); gConfig.menuVisible = YES; pthread_mutex_unlock(&g_ConfigMutex);
-                        [UIView animateWithDuration:0.3
-                                              delay:0
-                             usingSpringWithDamping:0.7
-                              initialSpringVelocity:0.6
-                                            options:0
-                                         animations:^{ m.alpha = 1; m.transform = CGAffineTransformIdentity; }
-                                         completion:nil];
+                    RavCaptchaView *cp = [[RavCaptchaView alloc] initWithFrame:k.bounds];
+                    cp.onDone = ^{
+                        RavFloatingButton *fb = [[RavFloatingButton alloc]
+                            initWithFrame:CGRectMake(k.bounds.size.width - 66 - 14,
+                                                     k.bounds.size.height * 0.52, 66, 66)];
+                        fb.alpha = 0;
+                        __weak typeof(fb) wfb = fb;
+                        fb.onTap = ^{
+                            [wfb removeFromSuperview];
+                            ESPOverlayView *ov = [[ESPManager shared] getOverlayView];
+                            RavMenuView *m = [[RavMenuView alloc]
+                                initWithFrame:CGRectMake((k.bounds.size.width  - 300) / 2.0,
+                                                         (k.bounds.size.height - 480) / 2.0,
+                                                         300, 480)
+                                  overlayView:ov];
+                            m.alpha     = 0;
+                            m.transform = CGAffineTransformMakeScale(0.88, 0.88);
+                            [k addSubview:m]; [k bringSubviewToFront:m];
+                            pthread_mutex_lock(&g_ConfigMutex);
+                            gConfig.menuVisible = YES;
+                            pthread_mutex_unlock(&g_ConfigMutex);
+                            [UIView animateWithDuration:0.3 delay:0
+                                 usingSpringWithDamping:0.7 initialSpringVelocity:0.6
+                                               options:0
+                                            animations:^{ m.alpha = 1; m.transform = CGAffineTransformIdentity; }
+                                            completion:nil];
+                        };
+                        [k addSubview:fb]; [k bringSubviewToFront:fb];
+                        [UIView animateWithDuration:0.3 animations:^{ fb.alpha = 1; }];
                     };
-                    [k addSubview:fb]; [k bringSubviewToFront:fb];
-                    [UIView animateWithDuration:0.3 animations:^{ fb.alpha = 1; }];
-                };
-                [k addSubview:cp]; [k bringSubviewToFront:cp];
-            }];
-        });
+                    [k addSubview:cp]; [k bringSubviewToFront:cp];
+                }];
+            });
+        };
+
+        RavLoginView *lv = [[RavLoginView alloc] initWithFrame:k.bounds];
+        lv.onSuccess = showSplash;
+        lv.alpha = 0;
+        [k addSubview:lv]; [k bringSubviewToFront:lv];
+        [UIView animateWithDuration:0.35 animations:^{ lv.alpha = 1; }];
     });
 }
 
@@ -1328,8 +1678,9 @@ static void Init(void) {
     gConfig.espLine        = NO;
     gConfig.espBulletLine  = NO;
     gConfig.espDistance    = 200.0f;
-    gConfig.menuVisible    = NO;
-    gConfig.fps120Enabled  = NO;
+    gConfig.menuVisible      = NO;
+    gConfig.crosshairEnabled = NO;
+    gConfig.aimbotSmoothing  = 5.0f;
     pthread_mutex_unlock(&g_ConfigMutex);
 
     pthread_t th;
