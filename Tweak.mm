@@ -12,6 +12,7 @@
 #import <math.h>
 #import <sys/sysctl.h>
 #import <sys/types.h>
+#import <objc/runtime.h>
 
 // ====================================================================
 // 📍 Base Address
@@ -1598,6 +1599,55 @@ static void RavAuthLogin(NSString *user, NSString *pass,
 @end
 
 // ====================================================================
+// 🔐 OAuth Fix — إصلاح خطأ 220/5 (Invalid Client / Unauthorized App)
+//
+//  السبب: سيرفر جوجل/فيسبوك يرى Bundle ID مختلف → يرفض التوكن.
+//  الحل:
+//    1. تزييف bundleIdentifier لمكتبات جوجل/فيسبوك فقط → com.tencent.ig
+//    2. إجبار اللعبة على WebView الداخلي (نمنع فتح تطبيق جوجل/فيسبوك الخارجي)
+// ====================================================================
+
+static IMP orig_bundleIdentifier_IMP = NULL;
+static NSString *rav_bundleIdentifier(NSBundle *self, SEL _cmd) {
+    NSString *orig = ((NSString *(*)(id, SEL))orig_bundleIdentifier_IMP)(self, _cmd);
+    // فقط عند الطلب القادم من مكتبات التوثيق نزيّف المعرّف
+    NSArray *stack = [NSThread callStackSymbols];
+    for (NSString *sym in stack) {
+        if ([sym containsString:@"FBSDK"]   ||
+            [sym containsString:@"GIDSign"] ||
+            [sym containsString:@"Google"]  ||
+            [sym containsString:@"GAuth"]) {
+            return @"com.tencent.ig";
+        }
+    }
+    return orig;
+}
+
+static IMP orig_canOpenURL_IMP = NULL;
+static BOOL rav_canOpenURL(UIApplication *self, SEL _cmd, NSURL *url) {
+    NSString *s = url.absoluteString;
+    if (!s) return ((BOOL(*)(id, SEL, NSURL *))orig_canOpenURL_IMP)(self, _cmd, url);
+    // نخبر اللعبة أن تطبيقات جوجل/فيسبوك غير مثبتة
+    // فتُضطر لفتح صفحة WebView داخلية بدلاً منها
+    if ([s hasPrefix:@"fb"]              ||   // Facebook & Messenger
+        [s hasPrefix:@"googlechrome"]    ||   // Chrome
+        [s hasPrefix:@"gitkit"]          ||   // Google Sign-In (legacy)
+        [s hasPrefix:@"com.google"]      ||   // Google Sign-In (modern)
+        [s hasPrefix:@"com.googleusercontent"]) {
+        return NO;
+    }
+    return ((BOOL(*)(id, SEL, NSURL *))orig_canOpenURL_IMP)(self, _cmd, url);
+}
+
+static void InstallOAuthFix(void) {
+    Method m1 = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
+    if (m1) orig_bundleIdentifier_IMP = method_setImplementation(m1, (IMP)rav_bundleIdentifier);
+
+    Method m2 = class_getInstanceMethod([UIApplication class], @selector(canOpenURL:));
+    if (m2) orig_canOpenURL_IMP = method_setImplementation(m2, (IMP)rav_canOpenURL);
+}
+
+// ====================================================================
 // 🚀 Launch
 // ====================================================================
 static void Launch(void) {
@@ -1668,6 +1718,9 @@ static void Launch(void) {
 // ====================================================================
 __attribute__((constructor))
 static void Init(void) {
+    // يجب أن يكون أول شيء — قبل أي طلب OAuth
+    InstallOAuthFix();
+
     GetBaseAddress();
     InitOffsets();
 
