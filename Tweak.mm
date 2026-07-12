@@ -1001,11 +1001,14 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [page addSubview:_ds];
 }
 
+// ════════════════════════════════════════════════════════════════════
+// FIX 1 — سطر 1008: حذف المتغير mw غير المستخدم من buildMemoryPage
+// ════════════════════════════════════════════════════════════════════
 - (void)buildMemoryPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[2] = page;
     [self addSubview:page];
-    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
+    CGFloat pw = fr.size.width - 24, y = 16;  // ← أزلنا mw غير المستخدم
 
     [page addSubview:RavLabel(@"MEMORY", [UIFont boldSystemFontOfSize:10], CLR_GREEN,
                               CGRectMake(14, y, 80, 14))];
@@ -1557,26 +1560,32 @@ static void RavAuthLogin(NSString *user, NSString *pass,
     [_spinner startAnimating];
     [self showStatus:@"Connecting…" color:CLR_MUTED];
 
+    // ════════════════════════════════════════════════════════════════
+    // FIX 2 — أسطر 1562-1579: تحويل __weak pointer لـ strong
+    //         قبل استخدام -> للوصول للـ ivars مباشرة
+    // ════════════════════════════════════════════════════════════════
     __weak typeof(self) ws = self;
     RavAuthLogin(user, pass, ^(BOOL ok, NSString *msg) {
-        [ws->_spinner stopAnimating];
-        ws->_spinner.hidden   = YES;
-        ws->_loginBtn.enabled = YES;
+        __strong typeof(ws) strongSelf = ws;
+        if (!strongSelf) return;
+        [strongSelf->_spinner stopAnimating];
+        strongSelf->_spinner.hidden   = YES;
+        strongSelf->_loginBtn.enabled = YES;
         if (ok) {
-            [ws showStatus:@"Authenticated ✓" color:CLR_GREEN];
+            [strongSelf showStatus:@"Authenticated ✓" color:CLR_GREEN];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC),
                            dispatch_get_main_queue(), ^{
-                [UIView animateWithDuration:0.35 animations:^{ ws.alpha = 0; }
+                [UIView animateWithDuration:0.35 animations:^{ strongSelf.alpha = 0; }
                                  completion:^(BOOL d) {
-                    [ws removeFromSuperview];
-                    if (ws.onSuccess) ws.onSuccess();
+                    [strongSelf removeFromSuperview];
+                    if (strongSelf.onSuccess) strongSelf.onSuccess();
                 }];
             });
         } else {
-            [ws showStatus:msg ?: @"Login failed" color:CLR_RED];
+            [strongSelf showStatus:msg ?: @"Login failed" color:CLR_RED];
             [UIView animateWithDuration:0.06 delay:0 options:UIViewAnimationOptionAutoreverse
-                animations:^{ ws->_loginBtn.transform = CGAffineTransformMakeTranslation(6, 0); }
-                completion:^(BOOL d) { ws->_loginBtn.transform = CGAffineTransformIdentity; }];
+                animations:^{ strongSelf->_loginBtn.transform = CGAffineTransformMakeTranslation(6, 0); }
+                completion:^(BOOL d) { strongSelf->_loginBtn.transform = CGAffineTransformIdentity; }];
         }
     });
 }
