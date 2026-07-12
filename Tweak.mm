@@ -64,6 +64,7 @@ typedef struct {
     volatile BOOL       menuVisible;
     volatile BOOL       crosshairEnabled;
     volatile float      aimbotSmoothing;
+    volatile BOOL       stabilityEnabled;   // ثبات سلاح
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -72,34 +73,60 @@ static RavConfig gConfig = {0};
 // 🔐 Offsets
 // ====================================================================
 enum {
+    // ── Core ───────────────────────────────────────────────────────
     OFF_GW, OFF_GN, OFF_PL, OFF_AA, OFF_AC, OFF_GI, OFF_LP,
     OFF_PC, OFF_AP, OFF_RC, OFF_CTW, OFF_CR, OFF_MS, OFF_BA,
-    OFF_HP, OFF_TM, OFF_AD, OFF_VMC, OFF_VM, OFF_COUNT
+    OFF_HP, OFF_TM, OFF_AD, OFF_VMC, OFF_VM,
+    // ── Weapon Stability (ثبات سلاح) ──────────────────────────────
+    OFF_WMAN,   // STExtraBaseCharacter_WeaponManagerComponent
+    OFF_CWR,    // WeaponManagerComponent_CurrentWeaponReplicated
+    OFF_WEC,    // STExtraWeapon_WeaponEntityComp
+    OFF_DEVF,   // ShootWeaponEntity_GameDeviationFactor
+    OFF_DEVA,   // ShootWeaponEntity_GameDeviationAccuracy
+    OFF_ACCDF,  // ShootWeaponEntity_AccessoriesDeviationFactor
+    OFF_HSPD,   // ShootWeaponEntity_ShotGunHorizontalSpread
+    OFF_VSPD,   // ShootWeaponEntity_ShotGunVerticalSpread
+    OFF_COUNT
 };
 static uint64_t gOffsets[OFF_COUNT] = {0};
 
 static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        gOffsets[OFF_GW]  = 0xA68D558;
-        gOffsets[OFF_GN]  = 0xA5C1598;
-        gOffsets[OFF_VMC] = 0x7F8B000;
-        gOffsets[OFF_PL]  = 0xAF0;
-        gOffsets[OFF_AA]  = 0x80;
-        gOffsets[OFF_AC]  = 0x88;
-        gOffsets[OFF_GI]  = 0xC48;
-        gOffsets[OFF_LP]  = 0xB48;
-        gOffsets[OFF_PC]  = 0x30;
-        gOffsets[OFF_AP]  = 0x7A8;
-        gOffsets[OFF_RC]  = 0x138;
-        gOffsets[OFF_CTW] = 0xAC0;
-        gOffsets[OFF_CR]  = 0xB80;
-        gOffsets[OFF_MS]  = 0x310;
-        gOffsets[OFF_BA]  = 0xB00;
-        gOffsets[OFF_HP]  = 0x5C;
-        gOffsets[OFF_TM]  = 0xA6C;
-        gOffsets[OFF_AD]  = 0x8;
+        // ── Global addresses (fixed per version) ─────────────────
+        gOffsets[OFF_GW]  = 0xA68D558;  // GWorld
+        gOffsets[OFF_GN]  = 0xA5C1598;  // GName
+        gOffsets[OFF_VMC] = 0x7F8B000;  // ViewMatrix
+
+        // ── World / level chain ───────────────────────────────────
+        gOffsets[OFF_PL]  = 0xAF0;      // PersistentLevel actors array base
+        gOffsets[OFF_AA]  = 0x80;       // Actor array ptr
+        gOffsets[OFF_AC]  = 0x88;       // Actor count
+        gOffsets[OFF_GI]  = 0xC48;      // GameInstance
+        gOffsets[OFF_LP]  = 0xB48;      // LocalPlayers
+        gOffsets[OFF_PC]  = 0x30;       // PlayerController
+
+        // ── Updated from SDK 4.5.0 ────────────────────────────────
+        gOffsets[OFF_AP]  = 0x528;      // PlayerController_AcknowledgedPawn
+        gOffsets[OFF_RC]  = 0x208;      // Actor_RootComponent
+        gOffsets[OFF_CTW] = 0xAC0;      // ComponentToWorld
+        gOffsets[OFF_CR]  = 0x4e0;      // Controller_ControlRotation
+        gOffsets[OFF_MS]  = 0x510;      // Character_Mesh
+        gOffsets[OFF_BA]  = 0xc40;      // SkeletalMeshComponent_CachedBoneSpaceTransforms
+        gOffsets[OFF_HP]  = 0xe60;      // STExtraCharacter_Health
+        gOffsets[OFF_TM]  = 0x998;      // UAECharacter_TeamID
+        gOffsets[OFF_AD]  = 0x8;        // Actor index
         gOffsets[OFF_VM]  = 0x0;
+
+        // ── Weapon Stability ──────────────────────────────────────
+        gOffsets[OFF_WMAN]  = 0x2608;   // STExtraBaseCharacter_WeaponManagerComponent
+        gOffsets[OFF_CWR]   = 0x5d8;    // WeaponManagerComponent_CurrentWeaponReplicated
+        gOffsets[OFF_WEC]   = 0x860;    // STExtraWeapon_WeaponEntityComp
+        gOffsets[OFF_DEVF]  = 0xc2c;    // ShootWeaponEntity_GameDeviationFactor
+        gOffsets[OFF_DEVA]  = 0xc30;    // ShootWeaponEntity_GameDeviationAccuracy
+        gOffsets[OFF_ACCDF] = 0xbf0;    // ShootWeaponEntity_AccessoriesDeviationFactor
+        gOffsets[OFF_HSPD]  = 0xc3c;    // ShootWeaponEntity_ShotGunHorizontalSpread
+        gOffsets[OFF_VSPD]  = 0xc38;    // ShootWeaponEntity_ShotGunVerticalSpread
     });
 }
 #define OFF(x) gOffsets[x]
@@ -334,6 +361,36 @@ static void DoAimbot(NSArray *players) {
 }
 
 // ====================================================================
+// 🔫 Weapon Stability — ثبات سلاح (No Recoil / No Spread)
+// ====================================================================
+static void DoStability(void) {
+    BOOL en = NO;
+    pthread_mutex_lock(&g_ConfigMutex);
+    en = gConfig.stabilityEnabled;
+    pthread_mutex_unlock(&g_ConfigMutex);
+    if (!en) return;
+
+    uint64_t base = GetBaseAddress();
+    uint64_t gw   = ReadPtr(base + OFF(OFF_GW)); if (!gw) return;
+    uint64_t gi   = ReadPtr(gw + OFF(OFF_GI));   if (!gi) return;
+    uint64_t lpArr= ReadPtr(gi + OFF(OFF_LP));   if (!lpArr) return;
+    uint64_t lp   = ReadPtr(lpArr);              if (!lp) return;
+    uint64_t pc   = ReadPtr(lp + OFF(OFF_PC));   if (!pc) return;
+    uint64_t pawn = ReadPtr(pc + OFF(OFF_AP));   if (!pawn) return;
+
+    uint64_t wman   = ReadPtr(pawn + OFF(OFF_WMAN));  if (!wman) return;
+    uint64_t weapon = ReadPtr(wman + OFF(OFF_CWR));   if (!weapon) return;
+    uint64_t wEnt   = ReadPtr(weapon + OFF(OFF_WEC)); if (!wEnt) return;
+
+    // Zero out deviation & spread → no recoil, no spread
+    WriteFloat(wEnt + OFF(OFF_DEVF),  0.0f);
+    WriteFloat(wEnt + OFF(OFF_DEVA),  0.0f);
+    WriteFloat(wEnt + OFF(OFF_ACCDF), 0.0f);
+    WriteFloat(wEnt + OFF(OFF_VSPD),  0.0f);
+    WriteFloat(wEnt + OFF(OFF_HSPD),  0.0f);
+}
+
+// ====================================================================
 // 🛡️ Anti-Detach
 // ====================================================================
 static void *AntiDetachLoop(void *arg) {
@@ -554,6 +611,7 @@ static void *AntiDetachLoop(void *arg) {
             dispatch_async(_q, ^{
                 NSArray *p = GetPlayers();
                 DoAimbot(p);
+                DoStability();
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [_ov updateWithPlayers:p];
                 });
@@ -740,6 +798,7 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     UILabel             *_dv;
 
     UISwitch            *_chs;
+    UISwitch            *_sts;          // ثبات سلاح
     UILabel             *_srvStatus;
 
     ESPOverlayView      *_ev;
@@ -804,6 +863,7 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     _bls.on = gConfig.espBulletLine;
     _ds.value = gConfig.espDistance;
     _chs.on = gConfig.crosshairEnabled;
+    _sts.on = gConfig.stabilityEnabled;
     pthread_mutex_unlock(&g_ConfigMutex);
     [_sv  setText:[NSString stringWithFormat:@"%.0f",   _ss.value]];
     [_smv setText:[NSString stringWithFormat:@"%.0f%%", (_smSlider.value / 10.0f) * 100.0f]];
@@ -997,69 +1057,105 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// FIX 1 — سطر 1008: حذف المتغير mw غير المستخدم من buildMemoryPage
-// ════════════════════════════════════════════════════════════════════
 - (void)buildMemoryPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[2] = page;
     [self addSubview:page];
-    CGFloat pw = fr.size.width - 24, y = 16;  // ← أزلنا mw غير المستخدم
+    CGFloat pw = fr.size.width - 24, y = 12;
 
     [page addSubview:RavLabel(@"MEMORY", [UIFont boldSystemFontOfSize:10], CLR_GREEN,
                               CGRectMake(14, y, 80, 14))];
-    y += 26;
+    y += 24;
 
-    UIView *chCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 44)];
+    // ── Crosshair ────────────────────────────────────────────────
+    UIView *chCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 40)];
     chCard.backgroundColor   = [UIColor colorWithRed:0.09 green:0.10 blue:0.13 alpha:1.0];
-    chCard.layer.cornerRadius = 12;
+    chCard.layer.cornerRadius = 10;
     [page addSubview:chCard];
 
-    UILabel *chH = [[UILabel alloc] initWithFrame:CGRectMake(7, 16, 16, 2)];
+    UILabel *chH = [[UILabel alloc] initWithFrame:CGRectMake(7, 14, 16, 2)];
     chH.backgroundColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.65];
     chH.layer.cornerRadius = 1; chH.clipsToBounds = YES;
     [chCard addSubview:chH];
-    UILabel *chV = [[UILabel alloc] initWithFrame:CGRectMake(14, 9, 2, 16)];
+    UILabel *chV = [[UILabel alloc] initWithFrame:CGRectMake(14, 7, 2, 16)];
     chV.backgroundColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.65];
     chV.layer.cornerRadius = 1; chV.clipsToBounds = YES;
     [chCard addSubview:chV];
 
     [chCard addSubview:RavLabel(@"Crosshair Overlay",
-        [UIFont boldSystemFontOfSize:10], CLR_TEXT, CGRectMake(34, 8, pw - 90, 14))];
+        [UIFont boldSystemFontOfSize:9], CLR_TEXT, CGRectMake(30, 6, pw - 80, 13))];
     [chCard addSubview:RavLabel(@"Precision aim guide",
-        [UIFont systemFontOfSize:8.5], CLR_MUTED, CGRectMake(34, 23, pw - 90, 12))];
+        [UIFont systemFontOfSize:8], CLR_MUTED, CGRectMake(30, 20, pw - 80, 12))];
 
     _chs = StyledSwitch([UIColor colorWithRed:1 green:1 blue:1 alpha:0.80]);
-    _chs.frame = CGRectMake(pw - 46, 8, 51, 28);
+    _chs.frame = CGRectMake(pw - 46, 5, 51, 28);
     [_chs addTarget:self action:@selector(tgCH) forControlEvents:UIControlEventValueChanged];
     [chCard addSubview:_chs];
-    y += 54;
+    y += 48;
 
-    [page addSubview:Sep(12, y, pw)]; y += 14;
+    // ── Weapon Stability ─────────────────────────────────────────
+    UIView *stCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 40)];
+    stCard.backgroundColor   = [UIColor colorWithRed:0.13 green:0.07 blue:0.07 alpha:1.0];
+    stCard.layer.cornerRadius = 10;
+    stCard.layer.borderWidth  = 0.6;
+    stCard.layer.borderColor  = [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:0.35].CGColor;
+    [page addSubview:stCard];
 
-    UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 32)];
+    // bullet icon
+    UILabel *bullet = [[UILabel alloc] initWithFrame:CGRectMake(9, 12, 16, 16)];
+    bullet.text          = @"⊕";
+    bullet.textColor     = CLR_RED;
+    bullet.font          = [UIFont boldSystemFontOfSize:11];
+    [stCard addSubview:bullet];
+
+    [stCard addSubview:RavLabel(@"Weapon Stability",
+        [UIFont boldSystemFontOfSize:9], CLR_RED, CGRectMake(30, 6, pw - 80, 13))];
+    [stCard addSubview:RavLabel(@"No recoil · No spread",
+        [UIFont systemFontOfSize:8], CLR_MUTED, CGRectMake(30, 20, pw - 80, 12))];
+
+    _sts = StyledSwitch(CLR_RED);
+    _sts.frame = CGRectMake(pw - 46, 5, 51, 28);
+    [_sts addTarget:self action:@selector(tgST) forControlEvents:UIControlEventValueChanged];
+    [stCard addSubview:_sts];
+    y += 46;
+
+    // ── Red warning ───────────────────────────────────────────────
+    UILabel *warn = [[UILabel alloc] initWithFrame:CGRectMake(12, y, pw, 24)];
+    warn.text          = @"⚠ May reduce protection if enabled!";
+    warn.textColor     = [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:0.90];
+    warn.font          = [UIFont boldSystemFontOfSize:8.5];
+    warn.textAlignment = NSTextAlignmentCenter;
+    warn.numberOfLines = 1;
+    [page addSubview:warn];
+    y += 26;
+
+    [page addSubview:Sep(12, y, pw)]; y += 10;
+
+    // ── Status bar ────────────────────────────────────────────────
+    UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 28)];
     srvCard.backgroundColor   = [UIColor colorWithRed:0.06 green:0.11 blue:0.08 alpha:1.0];
-    srvCard.layer.cornerRadius = 10;
+    srvCard.layer.cornerRadius = 8;
     [page addSubview:srvCard];
 
-    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(12, 12, 8, 8)];
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(10, 10, 8, 8)];
     dot.backgroundColor    = CLR_GREEN;
     dot.layer.cornerRadius = 4;
     [srvCard addSubview:dot];
 
     _srvStatus = RavLabel(@"PROTECTED",
-        [UIFont boldSystemFontOfSize:9], CLR_GREEN, CGRectMake(26, 10, pw - 34, 12));
+        [UIFont boldSystemFontOfSize:8], CLR_GREEN, CGRectMake(24, 8, pw - 32, 12));
     [srvCard addSubview:_srvStatus];
-    y += 44;
+    y += 36;
 
-    [page addSubview:Sep(12, y, pw)]; y += 14;
+    [page addSubview:Sep(12, y, pw)]; y += 10;
 
     UIButton *tgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    tgBtn.frame = CGRectMake(12, y, pw, 32);
+    tgBtn.frame = CGRectMake(12, y, pw, 28);
     [tgBtn setTitle:@"▸  t.me/RavFenupdate" forState:UIControlStateNormal];
     [tgBtn setTitleColor:CLR_VIOLET forState:UIControlStateNormal];
-    tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:10];
+    tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:9];
     tgBtn.backgroundColor    = CLR_VIOLET_DIM;
-    tgBtn.layer.cornerRadius = 10;
+    tgBtn.layer.cornerRadius = 8;
     tgBtn.layer.borderWidth  = 1;
     tgBtn.layer.borderColor  = CLR_VIOLET_DIM.CGColor;
     [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
@@ -1101,6 +1197,7 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 - (void)tgL    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espLine        = _ls.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgB    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espBulletLine  = _bls.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgCH   { pthread_mutex_lock(&g_ConfigMutex); gConfig.crosshairEnabled = _chs.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgST   { pthread_mutex_lock(&g_ConfigMutex); gConfig.stabilityEnabled = _sts.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)mCh    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotMode     = (AimbotMode)(_ms.selectedSegmentIndex + 1); pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)sCh {
     float v = _ss.value;
@@ -1164,9 +1261,9 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
 - (void)presentMenuIn:(UIWindow *)k {
     RavMenuView *m = [[RavMenuView alloc]
-        initWithFrame:CGRectMake((k.bounds.size.width  - 300) / 2.0,
+        initWithFrame:CGRectMake((k.bounds.size.width  - 250) / 2.0,
                                  (k.bounds.size.height - 480) / 2.0,
-                                 300, 480)
+                                 250, 480)
           overlayView:_ev];
     m.alpha     = 0;
     m.transform = CGAffineTransformMakeScale(0.88, 0.88);
@@ -1683,9 +1780,9 @@ static void Launch(void) {
                             [wfb removeFromSuperview];
                             ESPOverlayView *ov = [[ESPManager shared] getOverlayView];
                             RavMenuView *m = [[RavMenuView alloc]
-                                initWithFrame:CGRectMake((k.bounds.size.width  - 300) / 2.0,
+                                initWithFrame:CGRectMake((k.bounds.size.width  - 250) / 2.0,
                                                          (k.bounds.size.height - 480) / 2.0,
-                                                         300, 480)
+                                                         250, 480)
                                   overlayView:ov];
                             m.alpha     = 0;
                             m.transform = CGAffineTransformMakeScale(0.88, 0.88);
@@ -1735,6 +1832,7 @@ static void Init(void) {
     gConfig.menuVisible      = NO;
     gConfig.crosshairEnabled = NO;
     gConfig.aimbotSmoothing  = 5.0f;
+    gConfig.stabilityEnabled = NO;
     pthread_mutex_unlock(&g_ConfigMutex);
 
     pthread_t th;
