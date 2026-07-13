@@ -20,8 +20,7 @@
 #ifndef PT_DENY_ATTACH
 #define PT_DENY_ATTACH 31
 #endif
-extern int ptrace(int, pid_t, caddr_t, int);
-
+extern "C" int ptrace(int, pid_t, caddr_t, int);
 // ====================================================================
 // 🔐 XOR String Encryption — prevents plain-text string grep of .dylib
 //    Key = 0xC3 XOR rotated by index.  In production use a build-script
