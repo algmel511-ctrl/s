@@ -28,7 +28,7 @@ extern int ptrace(int, pid_t, caddr_t, int);
 //    to pre-encode all string literals; here we encode dynamically.
 // ====================================================================
 #define RAV_XK  0xC3U
-static __attribute__((noinline, optnone))
+static __attribute__((noinline, optnone, unused))
 NSString *_RavDec(const uint8_t *b, size_t n) {
     char *tmp = (char *)alloca(n + 1);
     for (size_t i = 0; i < n; i++) tmp[i] = (char)(b[i] ^ (uint8_t)(RAV_XK ^ (i * 37 & 0xFF)));
