@@ -12,10 +12,15 @@
 #import <math.h>
 #import <sys/sysctl.h>
 #import <sys/types.h>
-#import <sys/ptrace.h>
 #import <unistd.h>
 #import <signal.h>
 #import <objc/runtime.h>
+
+// ptrace — header not available in all SDK versions; declare manually
+#ifndef PT_DENY_ATTACH
+#define PT_DENY_ATTACH 31
+#endif
+extern int ptrace(int, pid_t, caddr_t, int);
 
 // ====================================================================
 // 🔐 XOR String Encryption — prevents plain-text string grep of .dylib
@@ -96,6 +101,7 @@ typedef struct {
     volatile BOOL       crosshairEnabled;
     volatile float      aimbotSmoothing;
     volatile BOOL       stabilityEnabled;   // ثبات سلاح
+    volatile BOOL       visCheckEnabled;    // Visibility Check
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -125,12 +131,13 @@ static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // ── Global addresses (fixed per version) ─────────────────
-        gOffsets[OFF_GW]  = 0x10A88BA60;  // GWorld
-        gOffsets[OFF_GN]  = 0x1050C4AB4;  // GName
-        gOffsets[OFF_VMC] = 0x106419D7C;  // ViewMatrix
+        // Base = 0x100000000 → offset = absolute − base
+        gOffsets[OFF_GW]  = 0xA88BA60;  // GUObject  (abs 0x10A88BA60)
+        gOffsets[OFF_GN]  = 0x50C4AB4;  // GNames    (abs 0x1050C4AB4)
+        gOffsets[OFF_PL]  = 0x6419D7C;  // Actor     (abs 0x106419D7C)
+        gOffsets[OFF_VMC] = 0x7F8B000;  // ViewMatrix
 
         // ── World / level chain ───────────────────────────────────
-        gOffsets[OFF_PL]  = 0xAF0;      // PersistentLevel actors array base
         gOffsets[OFF_AA]  = 0x80;       // Actor array ptr
         gOffsets[OFF_AC]  = 0x88;       // Actor count
         gOffsets[OFF_GI]  = 0xC48;      // GameInstance
