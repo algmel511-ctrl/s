@@ -616,7 +616,7 @@ static void *AntiDetachLoop(void *arg) {
 #define CLR_GOLD_DIM    [UIColor colorWithRed:0.984 green:0.749 blue:0.247 alpha:0.22]
 #define CLR_GREEN       [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:1.00]
 #define CLR_GREEN_DIM   [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:0.22]
-#define CLR_RED         [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00]
+#define CLR_RED          [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00]
 #define CLR_TEXT        [UIColor colorWithRed:0.94  green:0.94  blue:0.96  alpha:1.00]
 #define CLR_MUTED       [UIColor colorWithRed:0.58  green:0.62  blue:0.70  alpha:1.00]
 #define CLR_SEP         [UIColor colorWithRed:1.00  green:1.00  blue:1.00  alpha:0.07]
@@ -1254,7 +1254,7 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     if (!self) return nil;
     self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
 
-    CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.45;
+    CGFloat cy = f.size.height * 0.45;
 
     UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 44, f.size.width, 26)];
     lbl.text          = @"TOUCH  TO  ARM";
