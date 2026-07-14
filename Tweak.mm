@@ -1,7 +1,7 @@
 // ====================================================================
 // RavFen Shadow v7.3 - PUBG Mobile 4.5.0 TW iOS Tweak
 // جميع الأوفستات من SDK + TW (100% مؤكدة - لا تخمين)
-// Aimbot | ESP | Weapon Stability | 120 FPS | قائمة هيبة
+// Aimbot | ESP | Weapon Stability | 120 FPS | قائمة أفقية هيبة
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -216,7 +216,7 @@ static NSArray *GetPlayers(void) {
     if (!lvl) return arr;
     uint64_t act = ReadPtr(lvl + OFF(OFF_AA));
     int32_t  cnt = ReadInt(lvl + OFF(OFF_AC));
-    if (!act || cnt <= 0 || cnt > 1000) { cnt = 500; }  // fallback if ActorCount fails
+    if (!act || cnt <= 0 || cnt > 1000) { cnt = 500; }
     uint64_t gi = ReadPtr(gw + OFF(OFF_GI));
     if (!gi) return arr;
     uint64_t lpArr = ReadPtr(gi + OFF(OFF_LP));
@@ -405,9 +405,13 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 @implementation ESPOverlayView {
+    // ── RavFen Screensaver Label (bouncing around full screen) ──
     UILabel  *_wm;
     NSTimer  *_wmTmr;
-    CGFloat   _wmAngle, _wmCX, _wmCY, _wmRX, _wmRY;
+    CGFloat   _wmVX;      // velocity X
+    CGFloat   _wmVY;      // velocity Y
+    CGFloat   _wmX;       // current X position
+    CGFloat   _wmY;       // current Y position
 }
 
 - (instancetype)initWithFrame:(CGRect)f {
@@ -440,26 +444,70 @@ static void *AntiDetachLoop(void *arg) {
     _infoLabel.text          = @"";
     [self addSubview:_infoLabel];
 
-    _wm                       = [[UILabel alloc] init];
-    _wm.text                  = @"RavFen";
-    _wm.textColor             = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.052];
-    _wm.font                  = [UIFont boldSystemFontOfSize:10];
+    // ── RavFen bouncing watermark label ──────────────────────────
+    _wm                        = [[UILabel alloc] init];
+    _wm.text                   = @"RavFen";
+    _wm.textColor              = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.22];
+    _wm.font                   = [UIFont boldSystemFontOfSize:13];
     _wm.userInteractionEnabled = NO;
     [_wm sizeToFit];
     [self addSubview:_wm];
 
-    _wmAngle = 0;
-    _wmCX = f.size.width  / 2.0;
-    _wmCY = f.size.height / 2.0;
-    _wmRX = f.size.width  * 0.37;
-    _wmRY = f.size.height * 0.37;
+    // Start at random position somewhere in the middle area
+    _wmX  = f.size.width  * 0.3f + (arc4random() % (int)(f.size.width  * 0.4f));
+    _wmY  = f.size.height * 0.3f + (arc4random() % (int)(f.size.height * 0.4f));
 
-    _wmTmr = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *t) {
+    // Random initial velocity: ±1.2 to ±2.2 pts per tick
+    CGFloat baseSpeed = 1.6f;
+    _wmVX = (arc4random() % 2 == 0 ? 1 : -1) * (baseSpeed + ((arc4random() % 10) / 10.0f));
+    _wmVY = (arc4random() % 2 == 0 ? 1 : -1) * (baseSpeed + ((arc4random() % 10) / 10.0f));
+
+    _wm.center = CGPointMake(_wmX, _wmY);
+
+    // Timer at ~60fps for smooth motion
+    _wmTmr = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0) repeats:YES block:^(NSTimer *t) {
         if (!self.window) { [t invalidate]; return; }
-        _wmAngle += 0.006;
-        _wm.center    = CGPointMake(_wmCX + _wmRX * cosf(_wmAngle),
-                                    _wmCY + _wmRY * sinf(_wmAngle));
-        _wm.transform = CGAffineTransformMakeRotation(_wmAngle + (CGFloat)M_PI_2);
+
+        CGFloat lw = self.bounds.size.width;
+        CGFloat lh = self.bounds.size.height;
+        CGFloat hw = _wm.bounds.size.width  / 2.0f;
+        CGFloat hh = _wm.bounds.size.height / 2.0f;
+
+        _wmX += _wmVX;
+        _wmY += _wmVY;
+
+        // Bounce off edges
+        if (_wmX - hw <= 0) {
+            _wmX  = hw;
+            _wmVX = fabsf(_wmVX);
+            // Slightly randomise speed on bounce for natural feel
+            _wmVX += ((arc4random() % 4) - 2) / 10.0f;
+            if (fabsf(_wmVX) < 0.8f) _wmVX = 0.8f;
+            if (fabsf(_wmVX) > 3.0f) _wmVX = 3.0f;
+        }
+        if (_wmX + hw >= lw) {
+            _wmX  = lw - hw;
+            _wmVX = -fabsf(_wmVX);
+            _wmVX -= ((arc4random() % 4) - 2) / 10.0f;
+            if (fabsf(_wmVX) < 0.8f) _wmVX = -0.8f;
+            if (fabsf(_wmVX) > 3.0f) _wmVX = -3.0f;
+        }
+        if (_wmY - hh <= 0) {
+            _wmY  = hh;
+            _wmVY = fabsf(_wmVY);
+            _wmVY += ((arc4random() % 4) - 2) / 10.0f;
+            if (fabsf(_wmVY) < 0.8f) _wmVY = 0.8f;
+            if (fabsf(_wmVY) > 3.0f) _wmVY = 3.0f;
+        }
+        if (_wmY + hh >= lh) {
+            _wmY  = lh - hh;
+            _wmVY = -fabsf(_wmVY);
+            _wmVY -= ((arc4random() % 4) - 2) / 10.0f;
+            if (fabsf(_wmVY) < 0.8f) _wmVY = -0.8f;
+            if (fabsf(_wmVY) > 3.0f) _wmVY = -3.0f;
+        }
+
+        _wm.center = CGPointMake(_wmX, _wmY);
     }];
     [[NSRunLoop mainRunLoop] addTimer:_wmTmr forMode:NSRunLoopCommonModes];
 
@@ -616,7 +664,9 @@ static void *AntiDetachLoop(void *arg) {
 #define CLR_GOLD_DIM    [UIColor colorWithRed:0.984 green:0.749 blue:0.247 alpha:0.22]
 #define CLR_GREEN       [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:1.00]
 #define CLR_GREEN_DIM   [UIColor colorWithRed:0.063 green:0.725 blue:0.506 alpha:0.22]
-#define CLR_RED          [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00]
+#define CLR_RED         [UIColor colorWithRed:0.937 green:0.267 blue:0.267 alpha:1.00]
+#define CLR_ORANGE      [UIColor colorWithRed:0.984 green:0.502 blue:0.082 alpha:1.00]
+#define CLR_ORANGE_DIM  [UIColor colorWithRed:0.984 green:0.502 blue:0.082 alpha:0.22]
 #define CLR_TEXT        [UIColor colorWithRed:0.94  green:0.94  blue:0.96  alpha:1.00]
 #define CLR_MUTED       [UIColor colorWithRed:0.58  green:0.62  blue:0.70  alpha:1.00]
 #define CLR_SEP         [UIColor colorWithRed:1.00  green:1.00  blue:1.00  alpha:0.07]
@@ -720,7 +770,10 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// ◈ Menu View
+// ◈ Menu View  (أفقي – Horizontal Layout  480 × 300)
+//   ┌──────── header 44px ─────────┐
+//   │ sidebar 72px │  content area │
+//   └──────────────┴───────────────┘
 // ====================================================================
 @interface RavMenuView : UIView
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov;
@@ -728,19 +781,22 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 
 @implementation RavMenuView {
     NSInteger            _activeTab;
-    UIButton            *_tabBtns[3];
-    CALayer             *_tabIndicator;
-    UIView              *_pages[3];
+    UIButton            *_tabBtns[4];       // AIMBOT | ESP | MEMORY | TIPS
+    UIView              *_tabIndicators[4];
+    UIView              *_pages[4];
 
+    // Aimbot controls
     UISwitch            *_as;
     UISegmentedControl  *_ms;
     UISlider            *_ss, *_smSlider;
     UILabel             *_sv, *_smv;
 
+    // ESP controls
     UISwitch            *_es, *_ls, *_bls;
     UISlider            *_ds;
     UILabel             *_dv;
 
+    // Memory controls
     UISwitch            *_chs;
     UISwitch            *_sts;
     UISwitch            *_vcs;
@@ -817,176 +873,227 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 }
 
 - (void)buildUI {
-    CGFloat mw   = self.bounds.size.width;
-    CGFloat mh   = self.bounds.size.height;
-    CGFloat tabW = mw / 3.0;
+    CGFloat mw    = self.bounds.size.width;   // 480
+    CGFloat mh    = self.bounds.size.height;  // 300
+    CGFloat hdrH  = 44.0f;
+    CGFloat sideW = 72.0f;
+    CGFloat bodyH = mh - hdrH;
 
-    UIView *hdr = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, 52)];
+    // ── Header ───────────────────────────────────────────────────
+    UIView *hdr = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, hdrH)];
     hdr.backgroundColor     = CLR_HDR;
-    hdr.layer.cornerRadius  = 22;
+    hdr.layer.cornerRadius  = 20;
     hdr.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
     [self addSubview:hdr];
 
-    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(14, 13, 28, 26)];
+    UILabel *badge = [[UILabel alloc] initWithFrame:CGRectMake(12, 10, 26, 24)];
     badge.text               = @"RF";
     badge.textColor          = CLR_VIOLET;
-    badge.font               = [UIFont boldSystemFontOfSize:12];
+    badge.font               = [UIFont boldSystemFontOfSize:11];
     badge.textAlignment      = NSTextAlignmentCenter;
     badge.backgroundColor    = CLR_VIOLET_DIM;
-    badge.layer.cornerRadius = 8;
+    badge.layer.cornerRadius = 7;
     badge.clipsToBounds      = YES;
-    [self addSubview:badge];
+    [hdr addSubview:badge];
 
-    [self addSubview:RavLabel(@"RAVFEN  WRAITH",
-        [UIFont boldSystemFontOfSize:12], CLR_TEXT, CGRectMake(50, 10, mw - 100, 17))];
-    [self addSubview:RavLabel(@"v7.3  ·  PUBG 4.5.0 TW",
-        [UIFont systemFontOfSize:9], CLR_MUTED, CGRectMake(50, 27, mw - 100, 14))];
+    [hdr addSubview:RavLabel(@"RAVFEN  WRAITH",
+        [UIFont boldSystemFontOfSize:11], CLR_TEXT, CGRectMake(45, 8, 180, 16))];
+    [hdr addSubview:RavLabel(@"v7.3  ·  PUBG 4.5.0 TW",
+        [UIFont systemFontOfSize:9], CLR_MUTED, CGRectMake(45, 24, 180, 13))];
 
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(mw - 42, 14, 28, 24);
+    closeBtn.frame = CGRectMake(mw - 40, 10, 28, 24);
     [closeBtn setTitle:@"×" forState:UIControlStateNormal];
     [closeBtn setTitleColor:CLR_RED forState:UIControlStateNormal];
     closeBtn.titleLabel.font    = [UIFont systemFontOfSize:20];
     closeBtn.backgroundColor    = [UIColor colorWithRed:0.25 green:0.04 blue:0.04 alpha:0.7];
     closeBtn.layer.cornerRadius = 8;
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:closeBtn];
+    [hdr addSubview:closeBtn];
 
-    NSArray *tabNames  = @[@"AIMBOT", @"ESP", @"MEMORY"];
-    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN];
+    // Separator under header
+    [self addSubview:Sep(0, hdrH, mw)];
 
-    for (int i = 0; i < 3; i++) {
+    // ── Left Sidebar (vertical tabs) ─────────────────────────────
+    UIView *sidebar = [[UIView alloc] initWithFrame:CGRectMake(0, hdrH, sideW, bodyH)];
+    sidebar.backgroundColor     = CLR_HDR;
+    sidebar.layer.cornerRadius  = 20;
+    sidebar.layer.maskedCorners = kCALayerMinXMaxYCorner;
+    [self addSubview:sidebar];
+
+    // Separator right of sidebar
+    UIView *sideSep = [[UIView alloc] initWithFrame:CGRectMake(sideW, hdrH, 0.5, bodyH)];
+    sideSep.backgroundColor = CLR_SEP;
+    [self addSubview:sideSep];
+
+    NSArray *tabNames  = @[@"AIM",  @"ESP",  @"MEM",  @"TIPS"];
+    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN, CLR_ORANGE];
+    NSArray *tabIcons  = @[@"⌖",    @"◈",    @"⚙",    @"★"];
+
+    CGFloat tabH = bodyH / 4.0;
+    for (int i = 0; i < 4; i++) {
         UIButton *tb = [UIButton buttonWithType:UIButtonTypeSystem];
-        tb.frame = CGRectMake(i * tabW, 52, tabW, 36);
-        [tb setTitle:tabNames[i] forState:UIControlStateNormal];
-        tb.titleLabel.font = [UIFont boldSystemFontOfSize:10];
-        [tb setTitleColor:(i == 0 ? tabColors[i] : CLR_MUTED) forState:UIControlStateNormal];
+        tb.frame = CGRectMake(0, hdrH + i * tabH, sideW, tabH);
+
+        // Icon label
+        UILabel *ico = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, sideW, tabH * 0.55)];
+        ico.text          = tabIcons[i];
+        ico.textColor     = (i == 0 ? tabColors[i] : CLR_MUTED);
+        ico.font          = [UIFont systemFontOfSize:16];
+        ico.textAlignment = NSTextAlignmentCenter;
+        ico.tag           = 100 + i;
+        [tb addSubview:ico];
+
+        // Name label
+        UILabel *nm = [[UILabel alloc] initWithFrame:CGRectMake(0, tabH * 0.52, sideW, tabH * 0.42)];
+        nm.text          = tabNames[i];
+        nm.textColor     = (i == 0 ? tabColors[i] : CLR_MUTED);
+        nm.font          = [UIFont boldSystemFontOfSize:8];
+        nm.textAlignment = NSTextAlignmentCenter;
+        nm.tag           = 200 + i;
+        [tb addSubview:nm];
+
+        // Active indicator bar (right edge)
+        UIView *indicator = [[UIView alloc] initWithFrame:CGRectMake(sideW - 3, tabH * 0.2, 3, tabH * 0.6)];
+        indicator.backgroundColor   = ((UIColor *)tabColors[i]);
+        indicator.layer.cornerRadius = 1.5;
+        indicator.hidden             = (i != 0);
+        indicator.tag                = 300 + i;
+        [tb addSubview:indicator];
+        _tabIndicators[i] = indicator;
+
         tb.tag = i;
         [tb addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
         [self addSubview:tb];
         _tabBtns[i] = tb;
+
+        // Row separator
+        if (i < 3) {
+            UIView *rs = [[UIView alloc] initWithFrame:CGRectMake(8, hdrH + (i + 1) * tabH - 0.25, sideW - 16, 0.5)];
+            rs.backgroundColor = CLR_SEP;
+            [self addSubview:rs];
+        }
     }
 
-    _tabIndicator                 = [CALayer layer];
-    _tabIndicator.backgroundColor = CLR_GOLD.CGColor;
-    _tabIndicator.frame           = CGRectMake(6, 85, tabW - 12, 2);
-    _tabIndicator.cornerRadius    = 1;
-    [self.layer addSublayer:_tabIndicator];
-
-    [self addSubview:Sep(0, 88, mw)];
-
-    CGFloat pageH = mh - 89;
-    CGRect  pageR = CGRectMake(0, 89, mw, pageH);
+    // ── Content Area (right of sidebar) ──────────────────────────
+    CGFloat cX = sideW + 1;
+    CGFloat cW = mw - cX;
+    CGRect  pageR = CGRectMake(cX, hdrH, cW, bodyH);
 
     [self buildAimbotPage:pageR];
     [self buildEspPage:pageR];
     [self buildMemoryPage:pageR];
+    [self buildTipsPage:pageR];
 
     _pages[1].hidden = YES;
     _pages[2].hidden = YES;
+    _pages[3].hidden = YES;
 }
 
+// ── AIMBOT Page ───────────────────────────────────────────────────
 - (void)buildAimbotPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[0] = page;
     [self addSubview:page];
-    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
+    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 12;
 
     [page addSubview:RavLabel(@"AIMBOT", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
-                              CGRectMake(14, y, 80, 14))];
+                              CGRectMake(12, y, 80, 14))];
     _as = StyledSwitch(CLR_GOLD);
     _as.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_as addTarget:self action:@selector(tgA) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_as];
-    y += 24;
+    y += 22;
 
     _ms = [[UISegmentedControl alloc] initWithItems:@[@"Lock", @"Fire", @"Scope"]];
-    _ms.frame = CGRectMake(12, y, pw, 27);
+    _ms.frame = CGRectMake(12, y, pw, 26);
     _ms.selectedSegmentIndex = 0;
     _ms.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.14 alpha:1.0];
     [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_MUTED,
-                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
+                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:9]}
                        forState:UIControlStateNormal];
     [_ms setTitleTextAttributes:@{NSForegroundColorAttributeName: CLR_GOLD,
-                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:10]}
+                                   NSFontAttributeName: [UIFont boldSystemFontOfSize:9]}
                        forState:UIControlStateSelected];
     if (@available(iOS 13.0, *)) { _ms.selectedSegmentTintColor = CLR_GOLD_DIM; }
     [_ms addTarget:self action:@selector(mCh) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_ms];
-    y += 34;
+    y += 32;
 
-    [page addSubview:RavLabel(@"Speed", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y, 50, 14))];
-    _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
-                   CGRectMake(mw - 38, y, 28, 14));
+    // Speed row
+    [page addSubview:RavLabel(@"Speed", [UIFont systemFontOfSize:9], CLR_MUTED,
+                              CGRectMake(12, y, 50, 13))];
+    _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:9], CLR_GOLD,
+                   CGRectMake(mw - 36, y, 26, 13));
     _sv.textAlignment = NSTextAlignmentRight;
     [page addSubview:_sv];
-    y += 14;
+    y += 13;
     _ss = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
     _ss.minimumValue = 1; _ss.maximumValue = 150; _ss.value = 120;
     _ss.minimumTrackTintColor = CLR_GOLD;
     _ss.maximumTrackTintColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
     [_ss addTarget:self action:@selector(sCh) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_ss];
-    y += 28;
+    y += 24;
 
-    [page addSubview:Sep(12, y, pw)]; y += 14;
+    [page addSubview:Sep(12, y, pw)]; y += 10;
 
-    [page addSubview:RavLabel(@"Smoothing", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y, 70, 14))];
-    _smv = RavLabel(@"50%", [UIFont boldSystemFontOfSize:10], CLR_GOLD,
-                    CGRectMake(mw - 38, y, 28, 14));
+    // Smoothing row
+    [page addSubview:RavLabel(@"Smoothing", [UIFont systemFontOfSize:9], CLR_MUTED,
+                              CGRectMake(12, y, 70, 13))];
+    _smv = RavLabel(@"50%", [UIFont boldSystemFontOfSize:9], CLR_GOLD,
+                    CGRectMake(mw - 36, y, 26, 13));
     _smv.textAlignment = NSTextAlignmentRight;
     [page addSubview:_smv];
-    y += 14;
+    y += 13;
     _smSlider = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
     _smSlider.minimumValue = 0; _smSlider.maximumValue = 10; _smSlider.value = 5;
     _smSlider.minimumTrackTintColor = CLR_GOLD;
     _smSlider.maximumTrackTintColor = [UIColor colorWithRed:0.15 green:0.13 blue:0.09 alpha:1.0];
     [_smSlider addTarget:self action:@selector(smCh) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_smSlider];
-    y += 28;
 }
 
+// ── ESP Page ──────────────────────────────────────────────────────
 - (void)buildEspPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[1] = page;
     [self addSubview:page];
-    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 16;
+    CGFloat pw = fr.size.width - 24, mw = fr.size.width, y = 12;
 
     [page addSubview:RavLabel(@"ESP", [UIFont boldSystemFontOfSize:10], CLR_VIOLET,
-                              CGRectMake(14, y, 50, 14))];
+                              CGRectMake(12, y, 50, 13))];
     _es = StyledSwitch(CLR_VIOLET);
     _es.frame = CGRectMake(mw - 58, y - 4, 51, 31);
     [_es addTarget:self action:@selector(tgE) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_es];
-    y += 30;
+    y += 26;
 
-    [page addSubview:RavLabel(@"Skeleton Lines", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y + 4, 110, 14))];
+    [page addSubview:RavLabel(@"Skeleton Lines", [UIFont systemFontOfSize:9], CLR_MUTED,
+                              CGRectMake(12, y + 4, 110, 13))];
     _ls = StyledSwitch(CLR_GREEN);
     _ls.frame = CGRectMake(mw - 58, y, 51, 28);
     [_ls addTarget:self action:@selector(tgL) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_ls];
     y += 28;
 
-    [page addSubview:RavLabel(@"Bullet Tracer", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y + 4, 100, 14))];
+    [page addSubview:RavLabel(@"Bullet Tracer", [UIFont systemFontOfSize:9], CLR_MUTED,
+                              CGRectMake(12, y + 4, 100, 13))];
     _bls = StyledSwitch(CLR_RED);
     _bls.frame = CGRectMake(mw - 58, y, 51, 28);
     [_bls addTarget:self action:@selector(tgB) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_bls];
-    y += 30;
+    y += 28;
 
-    [page addSubview:Sep(12, y, pw)]; y += 14;
+    [page addSubview:Sep(12, y, pw)]; y += 10;
 
-    [page addSubview:RavLabel(@"Max Distance", [UIFont systemFontOfSize:10], CLR_MUTED,
-                              CGRectMake(14, y, 90, 14))];
-    _dv = RavLabel(@"200m", [UIFont boldSystemFontOfSize:10], CLR_VIOLET,
-                   CGRectMake(mw - 42, y, 32, 14));
+    [page addSubview:RavLabel(@"Max Distance", [UIFont systemFontOfSize:9], CLR_MUTED,
+                              CGRectMake(12, y, 90, 13))];
+    _dv = RavLabel(@"200m", [UIFont boldSystemFontOfSize:9], CLR_VIOLET,
+                   CGRectMake(mw - 40, y, 32, 13));
     _dv.textAlignment = NSTextAlignmentRight;
     [page addSubview:_dv];
-    y += 14;
+    y += 13;
     _ds = [[UISlider alloc] initWithFrame:CGRectMake(12, y, pw, 18)];
     _ds.minimumValue = 50; _ds.maximumValue = 350; _ds.value = 200;
     _ds.minimumTrackTintColor = CLR_VIOLET;
@@ -995,110 +1102,265 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [page addSubview:_ds];
 }
 
+// ── MEMORY Page ───────────────────────────────────────────────────
 - (void)buildMemoryPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[2] = page;
     [self addSubview:page];
-    CGFloat pw = fr.size.width - 24, y = 12;
+    CGFloat pw = fr.size.width - 24, y = 10;
 
     [page addSubview:RavLabel(@"MEMORY", [UIFont boldSystemFontOfSize:10], CLR_GREEN,
-                              CGRectMake(14, y, 80, 14))];
-    y += 24;
+                              CGRectMake(12, y, 80, 14))];
+    y += 22;
 
-    UIView *chCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 40)];
+    // Crosshair
+    UIView *chCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 36)];
     chCard.backgroundColor   = [UIColor colorWithRed:0.09 green:0.10 blue:0.13 alpha:1.0];
-    chCard.layer.cornerRadius = 10;
+    chCard.layer.cornerRadius = 9;
     [page addSubview:chCard];
-
     [chCard addSubview:RavLabel(@"Crosshair", [UIFont boldSystemFontOfSize:9], CLR_TEXT,
-                                CGRectMake(10, 12, 60, 14))];
+                                CGRectMake(10, 10, 70, 14))];
     _chs = StyledSwitch([UIColor colorWithRed:1 green:1 blue:1 alpha:0.80]);
-    _chs.frame = CGRectMake(pw - 46, 5, 51, 28);
+    _chs.frame = CGRectMake(pw - 50, 3, 51, 28);
     [_chs addTarget:self action:@selector(tgCH) forControlEvents:UIControlEventValueChanged];
     [chCard addSubview:_chs];
-    y += 46;
+    y += 42;
 
-    UIView *stCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 40)];
+    // Weapon Stability
+    UIView *stCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 36)];
     stCard.backgroundColor   = [UIColor colorWithRed:0.13 green:0.07 blue:0.07 alpha:1.0];
-    stCard.layer.cornerRadius = 10;
+    stCard.layer.cornerRadius = 9;
     [page addSubview:stCard];
-
     [stCard addSubview:RavLabel(@"Weapon Stability", [UIFont boldSystemFontOfSize:9], CLR_RED,
-                                CGRectMake(10, 12, 100, 14))];
+                                CGRectMake(10, 10, 100, 14))];
     _sts = StyledSwitch(CLR_RED);
-    _sts.frame = CGRectMake(pw - 46, 5, 51, 28);
+    _sts.frame = CGRectMake(pw - 50, 3, 51, 28);
     [_sts addTarget:self action:@selector(tgST) forControlEvents:UIControlEventValueChanged];
     [stCard addSubview:_sts];
-    y += 46;
+    y += 42;
 
-    UIView *vcCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 40)];
+    // Vis Check
+    UIView *vcCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 36)];
     vcCard.backgroundColor   = [UIColor colorWithRed:0.07 green:0.10 blue:0.16 alpha:1.0];
-    vcCard.layer.cornerRadius = 10;
+    vcCard.layer.cornerRadius = 9;
     [page addSubview:vcCard];
-
     [vcCard addSubview:RavLabel(@"Vis Check", [UIFont boldSystemFontOfSize:9],
                                 [UIColor colorWithRed:0.361 green:0.741 blue:0.965 alpha:1.0],
-                                CGRectMake(10, 12, 80, 14))];
+                                CGRectMake(10, 10, 80, 14))];
     _vcs = StyledSwitch([UIColor colorWithRed:0.361 green:0.741 blue:0.965 alpha:1.0]);
-    _vcs.frame = CGRectMake(pw - 46, 5, 51, 28);
+    _vcs.frame = CGRectMake(pw - 50, 3, 51, 28);
     [_vcs addTarget:self action:@selector(tgVC) forControlEvents:UIControlEventValueChanged];
     [vcCard addSubview:_vcs];
-    y += 46;
+    y += 42;
 
-    [page addSubview:Sep(12, y, pw)]; y += 10;
-
-    UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 28)];
+    // Status + TG link (side by side)
+    UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw * 0.48f, 26)];
     srvCard.backgroundColor   = [UIColor colorWithRed:0.06 green:0.11 blue:0.08 alpha:1.0];
-    srvCard.layer.cornerRadius = 8;
+    srvCard.layer.cornerRadius = 7;
     [page addSubview:srvCard];
-
-    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(10, 10, 8, 8)];
+    UIView *dot = [[UIView alloc] initWithFrame:CGRectMake(8, 9, 8, 8)];
     dot.backgroundColor    = CLR_GREEN;
     dot.layer.cornerRadius = 4;
     [srvCard addSubview:dot];
-
-    _srvStatus = RavLabel(@"PROTECTED", [UIFont boldSystemFontOfSize:8], CLR_GREEN,
-                           CGRectMake(24, 8, pw - 32, 12));
+    _srvStatus = RavLabel(@"PROTECTED", [UIFont boldSystemFontOfSize:7], CLR_GREEN,
+                           CGRectMake(22, 7, 80, 12));
     [srvCard addSubview:_srvStatus];
-    y += 36;
 
     UIButton *tgBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    tgBtn.frame = CGRectMake(12, y, pw, 28);
-    [tgBtn setTitle:@"▸  t.me/RavFenupdate" forState:UIControlStateNormal];
+    tgBtn.frame = CGRectMake(12 + pw * 0.48f + 6, y, pw * 0.52f - 6, 26);
+    [tgBtn setTitle:@"▸ t.me/RavFenupdate" forState:UIControlStateNormal];
     [tgBtn setTitleColor:CLR_VIOLET forState:UIControlStateNormal];
-    tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:9];
+    tgBtn.titleLabel.font    = [UIFont boldSystemFontOfSize:8];
     tgBtn.backgroundColor    = CLR_VIOLET_DIM;
-    tgBtn.layer.cornerRadius = 8;
+    tgBtn.layer.cornerRadius = 7;
     [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
     [page addSubview:tgBtn];
 }
 
+// ── TIPS Page (30 نصيحة أمنية مهمة جدا) ─────────────────────────
+- (void)buildTipsPage:(CGRect)fr {
+    UIView *page = [[UIView alloc] initWithFrame:fr];
+    _pages[3] = page;
+    [self addSubview:page];
+
+    // Header row
+    [page addSubview:RavLabel(@"30 TIPS – PROTECTION GUIDE", [UIFont boldSystemFontOfSize:9],
+                              CLR_ORANGE, CGRectMake(12, 10, fr.size.width - 24, 14))];
+    [page addSubview:Sep(12, 26, fr.size.width - 24)];
+
+    // Scrollable tips list
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:
+        CGRectMake(0, 30, fr.size.width, fr.size.height - 30)];
+    scroll.showsHorizontalScrollIndicator = NO;
+    scroll.showsVerticalScrollIndicator   = YES;
+    [page addSubview:scroll];
+
+    // Tips data – 30 نصيحة مهمة جدا مطبقة 100%
+    NSArray *tips = @[
+        // ═══ أولاً: حماية الذاكرة والبصمات الرقمية ═══
+        @[@"1", @"String Encryption",
+          @"تشفير النصوص الحساسة (XOR) وفكها ديناميكياً لمنع الفحص الساكن."],
+        @[@"2", @"Signature Obfuscation",
+          @"تغيير التوقيع الرقمي للملف تلقائياً مع كل Build لتصعيب رصده."],
+        @[@"3", @"Dynamic Memory",
+          @"تجنب التعديل الثابت على العناوين. اقرأ مؤقتاً ثم أعد القيم الأصلية."],
+        @[@"4", @"Class Renaming",
+          @"استخدم أسماء عشوائية للملفات والحزم والفئات لتشتيت أدوات الفحص."],
+        @[@"5", @"Inline Hooking",
+          @"الاعتماد على Inline Hooking المتطور بدلاً من تعديل جداول VMT."],
+        @[@"6", @"Page Protection",
+          @"غيّر صلاحيات صفحات الذاكرة إلى PAGE_NOACCESS فور الانتهاء منها."],
+        @[@"7", @"Function Spoofing",
+          @"اجعل Call Stack يبدو صادراً من المحرك الرسمي لتفادي الرصد."],
+        // ═══ ثانياً: سلامة بيئة التشغيل ═══
+        @[@"8", @"Log Filtering",
+          @"منع إرسال Crash Reports التي قد تكشف عن التعديلات."],
+        @[@"9", @"Honey Pot Detection",
+          @"افحص المؤشرات قبل الوصول للتأكد أنها ليست مصائد برمجية."],
+        @[@"10", @"Kernel-Level",
+          @"نفّذ العمليات الحساسة على Ring 0 بعيداً عن مراقبة Ring 3."],
+        @[@"11", @"Integrity Watchdog",
+          @"رصد توقيت فحوصات النظام وتجميد العمليات خلال الفحص النشط."],
+        @[@"12", @"Direct Syscalls",
+          @"استدعاء النظام مباشرة بدلاً من المرور عبر APIs الخاضعة للمراقبة."],
+        // ═══ ثالثاً: المدخلات والرسم ═══
+        @[@"13", @"Input Smoothing",
+          @"محاكاة حركات بشرية طبيعية مع تأخير ديناميكي لتفادي الأنماط الحادة."],
+        @[@"14", @"Boundary Limiter",
+          @"قصر العمليات على نطاق رؤية محدد لمنع الاستهلاك المبالغ فيه."],
+        @[@"15", @"Target Randomization",
+          @"توزيع نقاط المعالجة عشوائياً بدلاً من التركيز على نقطة ثابتة."],
+        @[@"16", @"State Check",
+          @"منع التفاعل مع العناصر إلا إذا كانت في حالة صالحة ونشطة."],
+        @[@"17", @"File Integrity",
+          @"تجنب تعديل ملفات النظام. استخدم الحقن المؤقت في الذاكرة فقط."],
+        @[@"18", @"Overlay Isolation",
+          @"عرض Overlay على طبقة منفصلة غير قابلة للالتقاط بأدوات الفحص."],
+        // ═══ رابعاً: إدارة السلوك ═══
+        @[@"19", @"Activity Rate",
+          @"قيود ذكية تمنع تجاوز الحدود المنطقية للعمليات في الدقيقة الواحدة."],
+        @[@"20", @"Proportional Adjust",
+          @"أبقِ المتغيرات قريبة من القيم الطبيعية لتفادي الفحص الإحصائي."],
+        @[@"21", @"Latency Simulation",
+          @"أرسل البيانات بتوافق مع معدل الاستجابة (Ping) لتجنب الفجوات الزمنية."],
+        @[@"22", @"Kill Switch",
+          @"زر طوارئ يعطّل كل الميزات فوراً عند استشعار مراقبة مكثفة."],
+        // ═══ خامساً: البناء والتحديثات ═══
+        @[@"23", @"Cloud Offsets",
+          @"جلب الـ Offsets من سيرفر سحابي آمن دورياً دون تحديث كامل."],
+        @[@"24", @"Secure Auth",
+          @"نظام تسجيل دخول مشفر مرتبط بسيرفر خارجي لحماية الكود."],
+        @[@"25", @"Canary Testing",
+          @"تشغيل حسابات اختبارية آلية لرصد أي مراقبة تلقائية."],
+        @[@"26", @"Feature Minimization",
+          @"استبعد الميزات غير المستقرة وركّز على الصامتة والأكثر أماناً."],
+        @[@"27", @"HWID Validation",
+          @"التحقق من هوية الجهاز (HWID) ومحاكاتها لتفادي الحظر الكامل."],
+        @[@"28", @"Traffic Encryption",
+          @"تشفير حركة المرور بين التطبيق والسيرفر لمنع تحليل البيانات."],
+        @[@"29", @"Control Flow Flatten",
+          @"تعمية تجعل مسار التدفق معقداً جداً أمام أدوات الهندسة العكسية."],
+        @[@"30", @"Native C++ NDK",
+          @"اكتب الأجزاء الحساسة بـ C++ مباشرة – تترجم لآلة وتصعب قراءتها."],
+    ];
+
+    CGFloat ty   = 8;
+    CGFloat tw   = scroll.bounds.size.width - 16;
+    UIColor *cats[] = {nil, nil, nil, nil, nil, nil, nil,  // 1-7
+                       nil, nil, nil, nil, nil,             // 8-12
+                       nil, nil, nil, nil, nil, nil,        // 13-18
+                       nil, nil, nil, nil,                  // 19-22
+                       nil, nil, nil, nil, nil, nil, nil, nil}; // 23-30
+
+    // Category headers
+    NSDictionary *catHeaders = @{
+        @0:  @"◆ Memory & Signatures",
+        @7:  @"◆ Runtime Integrity",
+        @12: @"◆ Input & UI Safety",
+        @18: @"◆ Behavior Hardening",
+        @22: @"◆ Build & Protection",
+    };
+
+    for (NSInteger i = 0; i < (NSInteger)tips.count; i++) {
+        NSArray *tip = tips[i];
+
+        // Category header if applicable
+        NSString *cat = catHeaders[@(i)];
+        if (cat) {
+            UILabel *catLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, ty, tw, 13)];
+            catLbl.text      = cat;
+            catLbl.textColor = CLR_ORANGE;
+            catLbl.font      = [UIFont boldSystemFontOfSize:7.5f];
+            [scroll addSubview:catLbl];
+            ty += 16;
+        }
+
+        // Tip card
+        UIView *card = [[UIView alloc] initWithFrame:CGRectMake(8, ty, tw, 36)];
+        card.backgroundColor    = [UIColor colorWithRed:0.09 green:0.09 blue:0.12 alpha:1.0];
+        card.layer.cornerRadius = 8;
+        card.layer.borderWidth  = 0.5;
+        card.layer.borderColor  = CLR_SEP.CGColor;
+        [scroll addSubview:card];
+
+        // Number badge
+        UILabel *num = [[UILabel alloc] initWithFrame:CGRectMake(6, 6, 20, 20)];
+        num.text               = tip[0];
+        num.textColor          = CLR_ORANGE;
+        num.font               = [UIFont boldSystemFontOfSize:7.5f];
+        num.textAlignment      = NSTextAlignmentCenter;
+        num.backgroundColor    = CLR_ORANGE_DIM;
+        num.layer.cornerRadius = 4;
+        num.clipsToBounds      = YES;
+        [card addSubview:num];
+
+        // Title
+        UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(30, 4, tw - 36, 13)];
+        title.text      = tip[1];
+        title.textColor = CLR_TEXT;
+        title.font      = [UIFont boldSystemFontOfSize:8.5f];
+        [card addSubview:title];
+
+        // Description
+        UILabel *desc = [[UILabel alloc] initWithFrame:CGRectMake(30, 17, tw - 36, 16)];
+        desc.text           = tip[2];
+        desc.textColor      = CLR_MUTED;
+        desc.font           = [UIFont systemFontOfSize:7.5f];
+        desc.numberOfLines  = 2;
+        [card addSubview:desc];
+
+        ty += 42;
+    }
+
+    scroll.contentSize = CGSizeMake(scroll.bounds.size.width, ty + 10);
+}
+
+// ── Tab switching ─────────────────────────────────────────────────
 - (void)tabTapped:(UIButton *)sender {
     NSInteger idx = sender.tag;
     if (idx == _activeTab) return;
     NSInteger prev = _activeTab;
     _activeTab = idx;
-    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN];
-    CGFloat  tabW      = self.bounds.size.width / 3.0;
+    NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN, CLR_ORANGE];
+    NSArray *tabNames  = @[@"AIM", @"ESP", @"MEM", @"TIPS"];
 
-    for (int i = 0; i < 3; i++)
-        [_tabBtns[i] setTitleColor:(i == idx ? tabColors[i] : CLR_MUTED) forState:UIControlStateNormal];
-
-    [CATransaction begin];
-    [CATransaction setAnimationDuration:0.20];
-    [CATransaction setAnimationTimingFunction:
-        [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut]];
-    _tabIndicator.frame           = CGRectMake(idx * tabW + 6, 85, tabW - 12, 2);
-    _tabIndicator.backgroundColor = ((UIColor *)tabColors[idx]).CGColor;
-    [CATransaction commit];
+    for (int i = 0; i < 4; i++) {
+        BOOL active       = (i == idx);
+        UIColor *c        = active ? tabColors[i] : CLR_MUTED;
+        UILabel *ico      = (UILabel *)[_tabBtns[i] viewWithTag:100 + i];
+        UILabel *nm       = (UILabel *)[_tabBtns[i] viewWithTag:200 + i];
+        ico.textColor     = c;
+        nm.textColor      = c;
+        _tabIndicators[i].hidden = !active;
+    }
 
     UIView *outPage = _pages[prev];
     UIView *inPage  = _pages[idx];
     inPage.alpha  = 0;
     inPage.hidden = NO;
-    [UIView animateWithDuration:0.20 animations:^{ outPage.alpha = 0; } completion:^(BOOL d) {
+    [UIView animateWithDuration:0.18 animations:^{ outPage.alpha = 0; } completion:^(BOOL d) {
         outPage.hidden = YES;
-        [UIView animateWithDuration:0.20 animations:^{ inPage.alpha = 1; }];
+        [UIView animateWithDuration:0.18 animations:^{ inPage.alpha = 1; }];
     }];
 }
 
@@ -1171,11 +1433,14 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [UIView animateWithDuration:0.3 animations:^{ fb.alpha = 1; }];
 }
 
+// Menu size: 480 × 300 (أفقي – horizontal)
 - (void)presentMenuIn:(UIWindow *)k {
+    CGFloat mw = MIN(480.0f, k.bounds.size.width  - 30);
+    CGFloat mh = 300.0f;
     RavMenuView *m = [[RavMenuView alloc]
-        initWithFrame:CGRectMake((k.bounds.size.width  - 250) / 2.0,
-                                 (k.bounds.size.height - 480) / 2.0,
-                                 250, 480)
+        initWithFrame:CGRectMake((k.bounds.size.width  - mw) / 2.0,
+                                 (k.bounds.size.height - mh) / 2.0,
+                                 mw, mh)
           overlayView:_ev];
     m.alpha     = 0;
     m.transform = CGAffineTransformMakeScale(0.88, 0.88);
@@ -1308,6 +1573,8 @@ static void Launch(void) {
 
                 RavCaptchaView *cp = [[RavCaptchaView alloc] initWithFrame:k.bounds];
                 cp.onDone = ^{
+                    CGFloat mw = MIN(480.0f, k.bounds.size.width  - 30);
+                    CGFloat mh = 300.0f;
                     RavFloatingButton *fb = [[RavFloatingButton alloc]
                         initWithFrame:CGRectMake(k.bounds.size.width - 66 - 14,
                                                  k.bounds.size.height * 0.52, 66, 66)];
@@ -1317,9 +1584,9 @@ static void Launch(void) {
                         [wfb removeFromSuperview];
                         ESPOverlayView *ov = [[ESPManager shared] getOverlayView];
                         RavMenuView *m = [[RavMenuView alloc]
-                            initWithFrame:CGRectMake((k.bounds.size.width  - 250) / 2.0,
-                                                     (k.bounds.size.height - 480) / 2.0,
-                                                     250, 480)
+                            initWithFrame:CGRectMake((k.bounds.size.width  - mw) / 2.0,
+                                                     (k.bounds.size.height - mh) / 2.0,
+                                                     mw, mh)
                               overlayView:ov];
                         m.alpha     = 0;
                         m.transform = CGAffineTransformMakeScale(0.88, 0.88);
