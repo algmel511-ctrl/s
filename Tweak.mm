@@ -479,32 +479,32 @@ static void *AntiDetachLoop(void *arg) {
         // Bounce off edges
         if (_wmX - hw <= 0) {
             _wmX  = hw;
-            _wmVX = fabsf(_wmVX);
+            _wmVX = fabs(_wmVX);
             // Slightly randomise speed on bounce for natural feel
-            _wmVX += ((arc4random() % 4) - 2) / 10.0f;
-            if (fabsf(_wmVX) < 0.8f) _wmVX = 0.8f;
-            if (fabsf(_wmVX) > 3.0f) _wmVX = 3.0f;
+            _wmVX += ((arc4random() % 4) - 2) / 10.0;
+            if (fabs(_wmVX) < 0.8) _wmVX = 0.8;
+            if (fabs(_wmVX) > 3.0) _wmVX = 3.0;
         }
         if (_wmX + hw >= lw) {
             _wmX  = lw - hw;
-            _wmVX = -fabsf(_wmVX);
-            _wmVX -= ((arc4random() % 4) - 2) / 10.0f;
-            if (fabsf(_wmVX) < 0.8f) _wmVX = -0.8f;
-            if (fabsf(_wmVX) > 3.0f) _wmVX = -3.0f;
+            _wmVX = -fabs(_wmVX);
+            _wmVX -= ((arc4random() % 4) - 2) / 10.0;
+            if (fabs(_wmVX) < 0.8) _wmVX = -0.8;
+            if (fabs(_wmVX) > 3.0) _wmVX = -3.0;
         }
         if (_wmY - hh <= 0) {
             _wmY  = hh;
-            _wmVY = fabsf(_wmVY);
-            _wmVY += ((arc4random() % 4) - 2) / 10.0f;
-            if (fabsf(_wmVY) < 0.8f) _wmVY = 0.8f;
-            if (fabsf(_wmVY) > 3.0f) _wmVY = 3.0f;
+            _wmVY = fabs(_wmVY);
+            _wmVY += ((arc4random() % 4) - 2) / 10.0;
+            if (fabs(_wmVY) < 0.8) _wmVY = 0.8;
+            if (fabs(_wmVY) > 3.0) _wmVY = 3.0;
         }
         if (_wmY + hh >= lh) {
             _wmY  = lh - hh;
-            _wmVY = -fabsf(_wmVY);
-            _wmVY -= ((arc4random() % 4) - 2) / 10.0f;
-            if (fabsf(_wmVY) < 0.8f) _wmVY = -0.8f;
-            if (fabsf(_wmVY) > 3.0f) _wmVY = -3.0f;
+            _wmVY = -fabs(_wmVY);
+            _wmVY -= ((arc4random() % 4) - 2) / 10.0;
+            if (fabs(_wmVY) < 0.8) _wmVY = -0.8;
+            if (fabs(_wmVY) > 3.0) _wmVY = -3.0;
         }
 
         _wm.center = CGPointMake(_wmX, _wmY);
@@ -1266,13 +1266,7 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
     CGFloat ty   = 8;
     CGFloat tw   = scroll.bounds.size.width - 16;
-    UIColor *cats[] = {nil, nil, nil, nil, nil, nil, nil,  // 1-7
-                       nil, nil, nil, nil, nil,             // 8-12
-                       nil, nil, nil, nil, nil, nil,        // 13-18
-                       nil, nil, nil, nil,                  // 19-22
-                       nil, nil, nil, nil, nil, nil, nil, nil}; // 23-30
-
-    // Category headers
+    // Category section headers
     NSDictionary *catHeaders = @{
         @0:  @"◆ Memory & Signatures",
         @7:  @"◆ Runtime Integrity",
@@ -1342,7 +1336,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     NSInteger prev = _activeTab;
     _activeTab = idx;
     NSArray *tabColors = @[CLR_GOLD, CLR_VIOLET, CLR_GREEN, CLR_ORANGE];
-    NSArray *tabNames  = @[@"AIM", @"ESP", @"MEM", @"TIPS"];
 
     for (int i = 0; i < 4; i++) {
         BOOL active       = (i == idx);
