@@ -88,7 +88,7 @@ static void InitOffsets(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // ── TW Global Addresses (from your list) ──────────────
-        gOffsets[OFF_GW]  = 0x10C0C6E18;  // UWorld
+        gOffsets[OFF_GW]  = 0x108d91e50;  // UWorld
         gOffsets[OFF_GN]  = 0x10A650080;  // GName Data
         gOffsets[OFF_AA]  = 0x106419D7C;  // ActorArray
         gOffsets[OFF_VMC] = 0x106367344;  // ProjectWorldLocationToScreen
