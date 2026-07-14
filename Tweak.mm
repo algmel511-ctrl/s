@@ -150,6 +150,126 @@ static BOOL WriteFloat(uint64_t addr, float val) {
 }
 
 // ====================================================================
+// 🚨 Offset Validation – يعرض اسم الأوفست الغلط على الشاشة
+// ====================================================================
+static BOOL gOffsetsValid   = NO;
+static BOOL gOffsetChecked  = NO;
+
+/// يعرض بانر أحمر يعدد كل الأوفستات الغلط بأسمائها
+static void ShowOffsetErrors(NSArray<NSString *> *badList) {
+    if (!badList.count) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *win = nil;
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes) {
+            if (s.activationState == UISceneActivationStateForegroundActive) {
+                win = s.windows.firstObject; break;
+            }
+        }
+        if (!win) return;
+
+        [[win viewWithTag:9876] removeFromSuperview];
+
+        // بناء النص – كل أوفست بسطر لحاله
+        NSMutableString *txt = [NSMutableString stringWithFormat:
+            @"❌  OFFSETS ERROR  (%d)\n", (int)badList.count];
+        for (NSString *line in badList)
+            [txt appendFormat:@"%@\n", line];
+
+        // ارتفاع ديناميكي حسب عدد الأوفستات
+        CGFloat rowH  = 17.0;
+        CGFloat cardH = 30.0 + badList.count * rowH;
+        UILabel *lbl  = [[UILabel alloc] initWithFrame:
+            CGRectMake(16, 56, win.bounds.size.width - 32, cardH)];
+        lbl.text                = [txt stringByTrimmingCharactersInSet:
+                                    [NSCharacterSet newlineCharacterSet]];
+        lbl.textColor           = [UIColor whiteColor];
+        lbl.backgroundColor     = [UIColor colorWithRed:0.72 green:0.06 blue:0.06 alpha:0.97];
+        lbl.textAlignment       = NSTextAlignmentCenter;
+        lbl.font                = [UIFont boldSystemFontOfSize:11];
+        lbl.numberOfLines       = 0;
+        lbl.layer.cornerRadius  = 12;
+        lbl.layer.borderColor   = [UIColor colorWithRed:1 green:0.3 blue:0.3 alpha:0.55].CGColor;
+        lbl.layer.borderWidth   = 1.0;
+        lbl.layer.shadowColor   = [UIColor redColor].CGColor;
+        lbl.layer.shadowRadius  = 10;
+        lbl.layer.shadowOpacity = 0.55;
+        lbl.layer.shadowOffset  = CGSizeMake(0, 0);
+        lbl.clipsToBounds       = YES;
+        lbl.tag                 = 9876;
+        lbl.alpha               = 0;
+        [win addSubview:lbl];
+        [win bringSubviewToFront:lbl];
+        [UIView animateWithDuration:0.4 animations:^{ lbl.alpha = 1; }];
+    });
+}
+
+/// يفحص كل الأوفستات الحرجة ويعرض أسماء الفاشلين كلهم مع بعض
+static BOOL ValidateOffsets(void) {
+    if (gOffsetChecked) return gOffsetsValid;
+    gOffsetChecked = YES;
+
+    NSMutableArray<NSString *> *bad = [NSMutableArray array];
+
+    // ── Global Addresses ─────────────────────────────────────────
+    uint64_t gw = ReadPtr(OFF(OFF_GW));
+    if (!gw) [bad addObject:[NSString stringWithFormat:@"OFF_GW (UWorld) → 0x%llx",     OFF(OFF_GW)]];
+
+    uint64_t gn = ReadPtr(OFF(OFF_GN));
+    if (!gn) [bad addObject:[NSString stringWithFormat:@"OFF_GN (GName) → 0x%llx",      OFF(OFF_GN)]];
+
+    // ── Chain من UWorld (نفحصها بس لو gw صح) ──────────────────
+    uint64_t lvl = gw ? ReadPtr(gw + OFF(OFF_PL)) : 0;
+    if (gw && !lvl) [bad addObject:[NSString stringWithFormat:@"OFF_PL (PersistentLevel) → 0x%llx", OFF(OFF_PL)]];
+
+    uint64_t gi = gw ? ReadPtr(gw + OFF(OFF_GI)) : 0;
+    if (gw && !gi)  [bad addObject:[NSString stringWithFormat:@"OFF_GI (GameInstance) → 0x%llx",    OFF(OFF_GI)]];
+
+    // ActorArray + Count
+    uint64_t act = lvl ? ReadPtr(lvl + OFF(OFF_AA)) : 0;
+    int32_t  cnt = lvl ? ReadInt(lvl  + OFF(OFF_AC)) : 0;
+    if (lvl && (!act || cnt <= 0 || cnt > 5000))
+        [bad addObject:[NSString stringWithFormat:@"OFF_AA/OFF_AC (ActorArray) → act=0x%llx cnt=%d",
+                        OFF(OFF_AA), cnt]];
+
+    // LocalPlayers chain
+    uint64_t lpArr = gi ? ReadPtr(gi + OFF(OFF_LP)) : 0;
+    if (gi && !lpArr) [bad addObject:[NSString stringWithFormat:@"OFF_LP (LocalPlayers) → 0x%llx", OFF(OFF_LP)]];
+
+    // PlayerController
+    uint64_t lp = lpArr ? ReadPtr(lpArr) : 0;
+    uint64_t pc = lp    ? ReadPtr(lp + OFF(OFF_PC)) : 0;
+    if (lpArr && lp && !pc)
+        [bad addObject:[NSString stringWithFormat:@"OFF_PC (PlayerController) → 0x%llx", OFF(OFF_PC)]];
+
+    // ControlRotation (صحّة offset الـ Aim)
+    if (pc) {
+        float rot[3] = {0};
+        if (!ReadMem(pc + OFF(OFF_CR), rot, 12))
+            [bad addObject:[NSString stringWithFormat:@"OFF_CR (ControlRotation) → 0x%llx", OFF(OFF_CR)]];
+    }
+
+    // ── ViewMatrix ──────────────────────────────────────────────
+    float vm[16] = {0};
+    BOOL hasVal  = NO;
+    if (ReadMem(OFF(OFF_VMC), vm, 64))
+        for (int i = 0; i < 16; i++) if (vm[i] != 0.0f) { hasVal = YES; break; }
+    if (!hasVal)
+        [bad addObject:[NSString stringWithFormat:@"OFF_VMC (ViewMatrix) → 0x%llx", OFF(OFF_VMC)]];
+
+    // ── BoneBase (نتحقق إن العنوان قابل للقراءة) ───────────────
+    if (OFF(OFF_BA) && !ReadPtr(OFF(OFF_BA)))
+        [bad addObject:[NSString stringWithFormat:@"OFF_BA (BonePos) → 0x%llx", OFF(OFF_BA)]];
+
+    if (bad.count > 0) {
+        ShowOffsetErrors(bad);
+        return NO;
+    }
+
+    gOffsetsValid = YES;
+    return YES;
+}
+
+// ====================================================================
 // 👤 IsPlayer
 // ====================================================================
 static BOOL IsPlayer(uint64_t actor) {
@@ -406,12 +526,14 @@ static void *AntiDetachLoop(void *arg) {
 
 @implementation ESPOverlayView {
     // ── RavFen Screensaver Label (bouncing around full screen) ──
-    UILabel  *_wm;
-    NSTimer  *_wmTmr;
-    CGFloat   _wmVX;      // velocity X
-    CGFloat   _wmVY;      // velocity Y
-    CGFloat   _wmX;       // current X position
-    CGFloat   _wmY;       // current Y position
+    UILabel       *_wm;
+    CAShapeLayer  *_rayLayer;   // أشعة بنفسجية تخرج من الـ label
+    NSTimer       *_wmTmr;
+    CGFloat        _wmVX;       // velocity X
+    CGFloat        _wmVY;       // velocity Y
+    CGFloat        _wmX;        // current X position
+    CGFloat        _wmY;        // current Y position
+    CGFloat        _rayPhase;   // زاوية دوران الأشعة (بطيء)
 }
 
 - (instancetype)initWithFrame:(CGRect)f {
@@ -447,11 +569,30 @@ static void *AntiDetachLoop(void *arg) {
     // ── RavFen bouncing watermark label ──────────────────────────
     _wm                        = [[UILabel alloc] init];
     _wm.text                   = @"RavFen";
-    _wm.textColor              = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.22];
+    _wm.textColor              = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.55];
     _wm.font                   = [UIFont boldSystemFontOfSize:13];
     _wm.userInteractionEnabled = NO;
+    // توهج بنفسجي خفيف على النص نفسه
+    _wm.layer.shadowColor      = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.0].CGColor;
+    _wm.layer.shadowRadius     = 7.0;
+    _wm.layer.shadowOpacity    = 0.65;
+    _wm.layer.shadowOffset     = CGSizeMake(0, 0);
     [_wm sizeToFit];
+
+    // ── طبقة الأشعة البنفسجية (تُرسم خلف الـ label) ──────────
+    _rayLayer              = [CAShapeLayer layer];
+    _rayLayer.strokeColor  = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.30].CGColor;
+    _rayLayer.fillColor    = [UIColor clearColor].CGColor;
+    _rayLayer.lineWidth    = 0.8;
+    _rayLayer.lineCap      = kCALineCapRound;
+    _rayLayer.shadowColor  = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.0].CGColor;
+    _rayLayer.shadowRadius = 4.0;
+    _rayLayer.shadowOpacity= 0.5;
+    _rayLayer.shadowOffset = CGSizeMake(0, 0);
+    [self.layer addSublayer:_rayLayer];
+
     [self addSubview:_wm];
+    _rayPhase = 0;
 
     // Start at random position somewhere in the middle area
     _wmX  = f.size.width  * 0.3f + (arc4random() % (int)(f.size.width  * 0.4f));
@@ -508,6 +649,38 @@ static void *AntiDetachLoop(void *arg) {
         }
 
         _wm.center = CGPointMake(_wmX, _wmY);
+
+        // ── رسم الأشعة البنفسجية من مركز الـ label ──────────────
+        // الأشعة تدور ببطء وتنبض مع الحركة
+        _rayPhase += 0.018;
+        NSInteger numRays = 8;
+        CGFloat   startR  = 10.0;            // بداية الشعاع من حافة الـ label
+        CGFloat   rayLen  = 18.0 + 5.0 * sinf(_rayPhase * 1.3); // نبض خفيف
+        UIBezierPath *rp  = [UIBezierPath bezierPath];
+        for (NSInteger r = 0; r < numRays; r++) {
+            // كل شعاع يدور بزاوية مختلفة + دوران بطيء
+            CGFloat angle = (M_PI * 2.0 / numRays) * r + _rayPhase;
+            CGPoint s = CGPointMake(_wmX + startR * cos(angle),
+                                    _wmY + startR * sin(angle));
+            CGPoint e = CGPointMake(_wmX + (startR + rayLen) * cos(angle),
+                                    _wmY + (startR + rayLen) * sin(angle));
+            [rp moveToPoint:s];
+            [rp addLineToPoint:e];
+        }
+        // أشعة وسطية أقصر (بين الـ 8 الرئيسية) لتعطي شكل نجمة ناعم
+        CGFloat shortLen = rayLen * 0.45;
+        for (NSInteger r = 0; r < numRays; r++) {
+            CGFloat angle = (M_PI * 2.0 / numRays) * r + _rayPhase + (M_PI / numRays);
+            CGPoint s = CGPointMake(_wmX + startR * cos(angle),
+                                    _wmY + startR * sin(angle));
+            CGPoint e = CGPointMake(_wmX + (startR + shortLen) * cos(angle),
+                                    _wmY + (startR + shortLen) * sin(angle));
+            [rp moveToPoint:s];
+            [rp addLineToPoint:e];
+        }
+        _rayLayer.path = rp.CGPath;
+        // نبض شفافية خفيف على طبقة الأشعة
+        _rayLayer.opacity = 0.22 + 0.12 * sinf(_rayPhase * 2.1);
     }];
     [[NSRunLoop mainRunLoop] addTimer:_wmTmr forMode:NSRunLoopCommonModes];
 
@@ -1175,6 +1348,22 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     tgBtn.layer.cornerRadius = 7;
     [tgBtn addTarget:self action:@selector(openTG) forControlEvents:UIControlEventTouchUpInside];
     [page addSubview:tgBtn];
+    y += 32;
+
+    // ── حالة الأوفستات (✅ صح / ❌ اسم الغلط) ────────────────────
+    BOOL   offOk  = ValidateOffsets();
+    NSString *offTxt = offOk ? @"✅  Offsets: Valid" : @"❌  Offsets: Invalid – check screen";
+    UIColor  *offClr = offOk ? CLR_GREEN : CLR_RED;
+    UIView *offCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 20)];
+    offCard.backgroundColor   = [UIColor colorWithRed:(offOk?0.05:0.14)
+                                                green:(offOk?0.10:0.04)
+                                                 blue:(offOk?0.06:0.04) alpha:1.0];
+    offCard.layer.cornerRadius = 6;
+    [page addSubview:offCard];
+    UILabel *offLbl = RavLabel(offTxt, [UIFont boldSystemFontOfSize:8], offClr,
+                                CGRectMake(8, 4, pw - 16, 12));
+    offLbl.textAlignment = NSTextAlignmentCenter;
+    [offCard addSubview:offLbl];
 }
 
 // ── TIPS Page (30 نصيحة أمنية مهمة جدا) ─────────────────────────
@@ -1609,6 +1798,18 @@ __attribute__((constructor))
 static void Init(void) {
     GetBaseAddress();
     InitOffsets();
+
+    // 🔥 فحص الأوفستات – لو في واحد غلط يظهر اسمه بالشاشة ويوقف
+    if (!ValidateOffsets()) {
+        // يأخر الـ UI شوي حتى تتجهز النافذة ثم يعرض الخطأ مجدداً
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            // أعد استدعاء ValidateOffsets ليعرض البانر بعد تجهز الـ window
+            gOffsetChecked = NO;
+            ValidateOffsets();
+        });
+        return; // لا تشغل باقي الكود
+    }
 
     pthread_mutex_lock(&g_ConfigMutex);
     gConfig.aimbotEnabled    = NO;
