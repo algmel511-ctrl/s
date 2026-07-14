@@ -2,10 +2,12 @@
 // RavFen Shadow v7.3 - PUBG Mobile 4.5.0 TW iOS Tweak
 // جميع الأوفستات من SDK + TW (100% مؤكدة - لا تخمين)
 // Aimbot | ESP | Weapon Stability | 120 FPS | قائمة أفقية هيبة
+// Auto-Fix Engine: يصيد الأوفستات الغلطة ويصلحها تلقائياً
 // ====================================================================
 
 #import <UIKit/UIKit.h>
 #import <mach-o/dyld.h>
+#import <mach-o/loader.h>
 #import <mach/mach.h>
 #import <pthread.h>
 #import <dlfcn.h>
@@ -93,30 +95,42 @@ static void InitOffsets(void) {
         gOffsets[OFF_BA]  = 0x10361CD48;  // BonePos
 
         // ── SDK Confirmed Offsets ────────────────────────────
-        gOffsets[OFF_PL]  = 0x30;       // World_PersistentLevel
-        gOffsets[OFF_AC]  = 0x88;       // ActorCount (standard UE4 offset)
-        gOffsets[OFF_GI]  = 0xC48;      // World_GameInstance (standard)
-        gOffsets[OFF_LP]  = 0x48;       // UGameInstance::LocalPlayers
-        gOffsets[OFF_PC]  = 0x518;      // APlayerController::Player
-        gOffsets[OFF_AP]  = 0x528;      // APlayerController::AcknowledgedPawn
-        gOffsets[OFF_RC]  = 0x208;      // AActor::RootComponent
-        gOffsets[OFF_CTW] = 0xAC0;      // ComponentToWorld (standard)
-        gOffsets[OFF_CR]  = 0x4E0;      // AController::ControlRotation
-        gOffsets[OFF_MS]  = 0x510;      // ACharacter::Mesh
-        gOffsets[OFF_HP]  = 0xE60;      // STExtraCharacter::Health
-        gOffsets[OFF_TM]  = 0x998;      // UAECharacter::TeamID
-        gOffsets[OFF_AD]  = 0x8;        // ActorId (standard)
+        gOffsets[OFF_PL]  = 0x30;
+        gOffsets[OFF_AC]  = 0x88;
+        gOffsets[OFF_GI]  = 0xC48;
+        gOffsets[OFF_LP]  = 0x48;
+        gOffsets[OFF_PC]  = 0x518;
+        gOffsets[OFF_AP]  = 0x528;
+        gOffsets[OFF_RC]  = 0x208;
+        gOffsets[OFF_CTW] = 0xAC0;
+        gOffsets[OFF_CR]  = 0x4E0;
+        gOffsets[OFF_MS]  = 0x510;
+        gOffsets[OFF_HP]  = 0xE60;
+        gOffsets[OFF_TM]  = 0x998;
+        gOffsets[OFF_AD]  = 0x8;
         gOffsets[OFF_VM]  = 0x0;
 
         // ── Weapon Stability (SDK) ───────────────────────────
-        gOffsets[OFF_WMAN]  = 0x2608;   // WeaponManagerComponent
-        gOffsets[OFF_CWR]   = 0x5D8;    // CurrentWeaponReplicated
-        gOffsets[OFF_WEC]   = 0x860;    // WeaponEntityComp
-        gOffsets[OFF_DEVF]  = 0xC2C;    // GameDeviationFactor
-        gOffsets[OFF_DEVA]  = 0xC30;    // GameDeviationAccuracy
-        gOffsets[OFF_ACCDF] = 0xBF0;    // AccessoriesDeviationFactor
-        gOffsets[OFF_HSPD]  = 0xC3C;    // ShotGunHorizontalSpread
-        gOffsets[OFF_VSPD]  = 0xC38;    // ShotGunVerticalSpread
+        gOffsets[OFF_WMAN]  = 0x2608;
+        gOffsets[OFF_CWR]   = 0x5D8;
+        gOffsets[OFF_WEC]   = 0x860;
+        gOffsets[OFF_DEVF]  = 0xC2C;
+        gOffsets[OFF_DEVA]  = 0xC30;
+        gOffsets[OFF_ACCDF] = 0xBF0;
+        gOffsets[OFF_HSPD]  = 0xC3C;
+        gOffsets[OFF_VSPD]  = 0xC38;
+
+        // ── استرجاع الأوفستات المحفوظة من NSUserDefaults لو موجودة ──
+        NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+        int globalKeys[] = { OFF_GW, OFF_GN, OFF_VMC, OFF_BA };
+        NSString *keyNames[] = { @"rf_off_gw", @"rf_off_gn", @"rf_off_vmc", @"rf_off_ba" };
+        for (int i = 0; i < 4; i++) {
+            NSNumber *saved = [ud objectForKey:keyNames[i]];
+            if (saved) {
+                uint64_t v = (uint64_t)[saved unsignedLongLongValue];
+                if (v > 0x100000000ULL) gOffsets[globalKeys[i]] = v;
+            }
+        }
     });
 }
 #define OFF(x) gOffsets[x]
@@ -150,36 +164,301 @@ static BOOL WriteFloat(uint64_t addr, float val) {
 }
 
 // ====================================================================
-// 🚨 Offset Validation – يعرض اسم الأوفست الغلط على الشاشة
+// 🔧 Auto-Fix Engine – يصيد الأوفستات الغلطة ويصلحها من ذاكرة اللعبة
+// ====================================================================
+
+static BOOL gAutoFixInProgress = NO;
+static NSInteger gAutoFixedCount = 0;
+
+/// يقرأ نطاق الـ __DATA segment من هيدر Mach-O مباشرةً
+static void GetDataSegmentRange(uint64_t *outStart, uint64_t *outEnd) {
+    *outStart = *outEnd = 0;
+    uint64_t base = GetBaseAddress();
+    const struct mach_header_64 *mh = (const struct mach_header_64 *)base;
+    if (mh->magic != MH_MAGIC_64) return;
+
+    const uint8_t *ptr = (const uint8_t *)(base + sizeof(struct mach_header_64));
+    for (uint32_t i = 0; i < mh->ncmds; i++) {
+        const struct load_command *lc = (const struct load_command *)ptr;
+        if (lc->cmd == LC_SEGMENT_64) {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)ptr;
+            if (strncmp(seg->segname, "__DATA", 6) == 0) {
+                *outStart = seg->vmaddr;
+                *outEnd   = seg->vmaddr + seg->vmsize;
+                return;
+            }
+        }
+        if (lc->cmdsize == 0) break;
+        ptr += lc->cmdsize;
+    }
+}
+
+// ─── Structural Validators (ARM64 – يفحص البنية مو البايتات) ─────────
+
+/// يفحص إذا العنوان يشبه UWorld حقيقي عبر chain التحقق
+static BOOL IsLikelyUWorld(uint64_t p) {
+    if (p < 0x100000 || p > 0x7FFFFFFFFFFFULL) return NO;
+    // PersistentLevel @ 0x30
+    uint64_t lvl = ReadPtr(p + 0x30);
+    if (!lvl || lvl < 0x100000 || lvl > 0x7FFFFFFFFFFFULL) return NO;
+    // GameInstance @ 0xC48
+    uint64_t gi = ReadPtr(p + 0xC48);
+    if (!gi || gi < 0x100000 || gi > 0x7FFFFFFFFFFFULL) return NO;
+    // ActorCount @ Level+0x88 يجب أن يكون منطقياً
+    int32_t cnt = ReadInt(lvl + 0x88);
+    return (cnt >= 0 && cnt < 5000);
+}
+
+/// يفحص إذا العنوان يشبه GNames حقيقي
+static BOOL IsLikelyGNames(uint64_t p) {
+    if (p < 0x100000 || p > 0x7FFFFFFFFFFFULL) return NO;
+    // أول chunk pointer
+    uint64_t c0 = ReadPtr(p);
+    if (!c0 || c0 < 0x100000 || c0 > 0x7FFFFFFFFFFFULL) return NO;
+    // أول entry في الـ chunk
+    uint64_t e0 = ReadPtr(c0);
+    if (!e0 || e0 < 0x100000 || e0 > 0x7FFFFFFFFFFFULL) return NO;
+    // GNames entry[0] اسمه دايماً "None"
+    char name[8] = {0};
+    if (!ReadMem(e0 + 8, name, 6)) return NO;
+    return (strncmp(name, "None", 4) == 0);
+}
+
+/// يفحص إذا العنوان يشبه ViewMatrix حقيقي (4×4 float)
+static BOOL IsLikelyViewMatrix(uint64_t p) {
+    if (p < 0x100000 || p > 0x7FFFFFFFFFFFULL) return NO;
+    float m[16] = {0};
+    if (!ReadMem(p, m, 64)) return NO;
+    // m[15] يجب أن يكون ≈ 1.0 (projection)
+    if (fabsf(m[15] - 1.0f) > 0.05f) return NO;
+    // العناصر القطرية يجب أن تكون غير صفر وفي نطاق معقول
+    if (fabsf(m[0]) < 0.001f || fabsf(m[5]) < 0.001f) return NO;
+    for (int i = 0; i < 15; i++)
+        if (isnan(m[i]) || isinf(m[i]) || fabsf(m[i]) > 100000.0f) return NO;
+    return YES;
+}
+
+/// يمسح نطاق ذاكرة بخطوات 8 بايت ويرجع أول قيمة تجتاز المحقق
+/// (يقرأ 32KB دفعة واحدة لسرعة أعلى)
+static uint64_t ScanForPointer(uint64_t rangeStart, uint64_t rangeEnd,
+                                BOOL(*validator)(uint64_t)) {
+    if (!rangeStart || !rangeEnd || rangeStart >= rangeEnd) return 0;
+    const size_t kChunk = 0x8000; // 32 KB
+    uint8_t *buf = (uint8_t *)malloc(kChunk);
+    if (!buf) return 0;
+    uint64_t found = 0;
+
+    for (uint64_t addr = rangeStart; addr < rangeEnd - 8 && !found; addr += kChunk) {
+        size_t sz = (size_t)MIN((uint64_t)kChunk, rangeEnd - addr);
+        if (!ReadMem(addr, buf, sz)) continue;
+        for (size_t i = 0; i + 8 <= sz; i += 8) {
+            uint64_t val = 0;
+            memcpy(&val, buf + i, 8);
+            // فلتر سريع: عناوين iOS ARM64 الصحيحة
+            if (val > 0x100000000ULL && val < 0x7FFFFFFFFFFFULL) {
+                if (validator(val)) { found = val; break; }
+            }
+        }
+    }
+    free(buf);
+    return found;
+}
+
+// ─── Success Banner (أخضر) ────────────────────────────────────────
+
+static void ShowFixSuccess(NSArray<NSString *> *fixedList) {
+    if (!fixedList.count) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *win = nil;
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
+            if (s.activationState == UISceneActivationStateForegroundActive)
+                { win = s.windows.firstObject; break; }
+        if (!win) return;
+
+        [[win viewWithTag:9877] removeFromSuperview];
+
+        NSMutableString *txt = [NSMutableString stringWithFormat:
+            @"🔧  AUTO-FIXED  (%d)\n", (int)fixedList.count];
+        for (NSString *line in fixedList) [txt appendFormat:@"%@\n", line];
+
+        CGFloat rowH  = 17.0;
+        CGFloat cardH = 30.0 + fixedList.count * rowH;
+        UILabel *lbl  = [[UILabel alloc]
+            initWithFrame:CGRectMake(16, 56, win.bounds.size.width - 32, cardH)];
+        lbl.text                = [txt stringByTrimmingCharactersInSet:
+                                    [NSCharacterSet newlineCharacterSet]];
+        lbl.textColor           = [UIColor whiteColor];
+        lbl.backgroundColor     = [UIColor colorWithRed:0.04 green:0.45 blue:0.22 alpha:0.97];
+        lbl.textAlignment       = NSTextAlignmentCenter;
+        lbl.font                = [UIFont boldSystemFontOfSize:11];
+        lbl.numberOfLines       = 0;
+        lbl.layer.cornerRadius  = 12;
+        lbl.layer.borderColor   = [UIColor colorWithRed:0.06 green:0.72 blue:0.50 alpha:0.55].CGColor;
+        lbl.layer.borderWidth   = 1.0;
+        lbl.layer.shadowColor   = [UIColor colorWithRed:0.06 green:0.72 blue:0.50 alpha:1.0].CGColor;
+        lbl.layer.shadowRadius  = 10;
+        lbl.layer.shadowOpacity = 0.55;
+        lbl.layer.shadowOffset  = CGSizeMake(0, 0);
+        lbl.clipsToBounds       = YES;
+        lbl.tag                 = 9877;
+        lbl.alpha               = 0;
+        [win addSubview:lbl];
+        [win bringSubviewToFront:lbl];
+
+        [UIView animateWithDuration:0.4 animations:^{ lbl.alpha = 1; }
+                         completion:^(BOOL d) {
+            // يختفي تلقائياً بعد 6 ثوانٍ
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC),
+                           dispatch_get_main_queue(), ^{
+                [UIView animateWithDuration:0.5 animations:^{ lbl.alpha = 0; }
+                                 completion:^(BOOL d2) { [lbl removeFromSuperview]; }];
+            });
+        }];
+    });
+}
+
+/// يبحث في ذاكرة اللعبة عن الأوفستات الغلطة ويصلحها
+/// يرجع قائمة بأسماء الأوفستات التي تم إصلاحها
+static NSArray<NSString *> *AutoFixOffsets(void) {
+    NSMutableArray<NSString *> *fixed = [NSMutableArray array];
+
+    // احسب نطاق الـ __DATA segment من الـ Mach-O مباشرةً
+    uint64_t dsStart = 0, dsEnd = 0;
+    GetDataSegmentRange(&dsStart, &dsEnd);
+
+    // Fallback: نطاق تقديري لو ما قدرنا نقرأ الهيدر
+    if (!dsStart || dsStart >= dsEnd) {
+        uint64_t base = GetBaseAddress();
+        dsStart = base + 0x8000000;
+        dsEnd   = base + 0xC000000;
+    }
+
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+
+    // ── UWorld ───────────────────────────────────────────────────────
+    {
+        uint64_t cur = ReadPtr(OFF(OFF_GW));
+        if (!IsLikelyUWorld(cur)) {
+            uint64_t found = ScanForPointer(dsStart, dsEnd, IsLikelyUWorld);
+            if (found) {
+                NSString *line = [NSString stringWithFormat:
+                    @"UWorld: 0x%llx → 0x%llx", OFF(OFF_GW), found];
+                [fixed addObject:line];
+                gOffsets[OFF_GW] = found;
+                [ud setObject:@(found) forKey:@"rf_off_gw"];
+            }
+        }
+    }
+
+    // ── GNames ───────────────────────────────────────────────────────
+    {
+        uint64_t cur = ReadPtr(OFF(OFF_GN));
+        if (!IsLikelyGNames(cur)) {
+            uint64_t found = ScanForPointer(dsStart, dsEnd, IsLikelyGNames);
+            if (found) {
+                NSString *line = [NSString stringWithFormat:
+                    @"GNames: 0x%llx → 0x%llx", OFF(OFF_GN), found];
+                [fixed addObject:line];
+                gOffsets[OFF_GN] = found;
+                [ud setObject:@(found) forKey:@"rf_off_gn"];
+            }
+        }
+    }
+
+    // ── ViewMatrix ────────────────────────────────────────────────────
+    {
+        float vm[16] = {0}; BOOL vmOk = NO;
+        if (ReadMem(OFF(OFF_VMC), vm, 64))
+            for (int i = 0; i < 16; i++) if (vm[i] != 0.0f) { vmOk = YES; break; }
+        if (!vmOk || !IsLikelyViewMatrix(OFF(OFF_VMC))) {
+            uint64_t found = ScanForPointer(dsStart, dsEnd, IsLikelyViewMatrix);
+            if (found) {
+                NSString *line = [NSString stringWithFormat:
+                    @"ViewMatrix: 0x%llx → 0x%llx", OFF(OFF_VMC), found];
+                [fixed addObject:line];
+                gOffsets[OFF_VMC] = found;
+                [ud setObject:@(found) forKey:@"rf_off_vmc"];
+            }
+        }
+    }
+
+    // ── BonePos (يبحث بالقرب من العنوان الأصلي ±0x200 خطوات) ─────────
+    {
+        if (!ReadPtr(OFF(OFF_BA))) {
+            uint64_t orig  = OFF(OFF_BA);
+            uint64_t delta = 0x2000;
+            uint64_t srStart = (orig > delta) ? (orig - delta) : orig;
+            uint64_t srEnd   = orig + delta;
+            BOOL foundBone = NO;
+            for (uint64_t probe = srStart; probe <= srEnd; probe += 8) {
+                if (ReadPtr(probe)) {
+                    [fixed addObject:[NSString stringWithFormat:
+                        @"BonePos: 0x%llx → 0x%llx", orig, probe]];
+                    gOffsets[OFF_BA] = probe;
+                    [ud setObject:@(probe) forKey:@"rf_off_ba"];
+                    foundBone = YES; break;
+                }
+            }
+            (void)foundBone;
+        }
+    }
+
+    // ── ActorArray (مشتق من UWorld بعد الإصلاح) ───────────────────────
+    {
+        uint64_t gw = ReadPtr(OFF(OFF_GW));
+        if (gw) {
+            uint64_t lvl = ReadPtr(gw + OFF(OFF_PL));
+            if (lvl) {
+                uint64_t aa  = ReadPtr(lvl + OFF(OFF_AA));
+                int32_t  cnt = ReadInt(lvl + OFF(OFF_AC));
+                // لو الـ AA مفيش قيمة صحيحة نجرب offsets مجاورة
+                if (!aa || cnt <= 0 || cnt > 5000) {
+                    for (uint64_t delta = 0x80; delta <= 0x100; delta += 0x8) {
+                        uint64_t tryAA  = ReadPtr(lvl + delta);
+                        int32_t  tryCnt = ReadInt(lvl + delta + 0x8);
+                        if (tryAA && tryCnt > 0 && tryCnt < 5000) {
+                            [fixed addObject:[NSString stringWithFormat:
+                                @"ActorArray: 0x%llx → 0x%llx",
+                                OFF(OFF_AA), lvl + delta]];
+                            gOffsets[OFF_AA] = lvl + delta; // نحفظ الأوفست الجديد
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [ud synchronize];
+    gAutoFixedCount = (NSInteger)fixed.count;
+    return fixed;
+}
+
+// ====================================================================
+// 🚨 Offset Validation – يفحص ثم يصلح تلقائياً ثم يعرض النتيجة
 // ====================================================================
 static BOOL gOffsetsValid   = NO;
 static BOOL gOffsetChecked  = NO;
 
-/// يعرض بانر أحمر يعدد كل الأوفستات الغلط بأسمائها
 static void ShowOffsetErrors(NSArray<NSString *> *badList) {
     if (!badList.count) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindow *win = nil;
-        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes) {
-            if (s.activationState == UISceneActivationStateForegroundActive) {
-                win = s.windows.firstObject; break;
-            }
-        }
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
+            if (s.activationState == UISceneActivationStateForegroundActive)
+                { win = s.windows.firstObject; break; }
         if (!win) return;
 
         [[win viewWithTag:9876] removeFromSuperview];
 
-        // بناء النص – كل أوفست بسطر لحاله
         NSMutableString *txt = [NSMutableString stringWithFormat:
             @"❌  OFFSETS ERROR  (%d)\n", (int)badList.count];
-        for (NSString *line in badList)
-            [txt appendFormat:@"%@\n", line];
+        for (NSString *line in badList) [txt appendFormat:@"%@\n", line];
 
-        // ارتفاع ديناميكي حسب عدد الأوفستات
         CGFloat rowH  = 17.0;
         CGFloat cardH = 30.0 + badList.count * rowH;
-        UILabel *lbl  = [[UILabel alloc] initWithFrame:
-            CGRectMake(16, 56, win.bounds.size.width - 32, cardH)];
+        UILabel *lbl  = [[UILabel alloc]
+            initWithFrame:CGRectMake(16, 56, win.bounds.size.width - 32, cardH)];
         lbl.text                = [txt stringByTrimmingCharactersInSet:
                                     [NSCharacterSet newlineCharacterSet]];
         lbl.textColor           = [UIColor whiteColor];
@@ -203,70 +482,157 @@ static void ShowOffsetErrors(NSArray<NSString *> *badList) {
     });
 }
 
-/// يفحص كل الأوفستات الحرجة ويعرض أسماء الفاشلين كلهم مع بعض
+/// "Scanning…" بانر برتقالي يظهر أثناء البحث
+static void ShowScanningBanner(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *win = nil;
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
+            if (s.activationState == UISceneActivationStateForegroundActive)
+                { win = s.windows.firstObject; break; }
+        if (!win) return;
+
+        [[win viewWithTag:9878] removeFromSuperview];
+        UILabel *lbl  = [[UILabel alloc]
+            initWithFrame:CGRectMake(16, 56, win.bounds.size.width - 32, 42)];
+        lbl.text                = @"⟳  Scanning memory – fixing offsets…";
+        lbl.textColor           = [UIColor whiteColor];
+        lbl.backgroundColor     = [UIColor colorWithRed:0.55 green:0.30 blue:0.02 alpha:0.97];
+        lbl.textAlignment       = NSTextAlignmentCenter;
+        lbl.font                = [UIFont boldSystemFontOfSize:11];
+        lbl.numberOfLines       = 1;
+        lbl.layer.cornerRadius  = 12;
+        lbl.clipsToBounds       = YES;
+        lbl.tag                 = 9878;
+        lbl.alpha               = 0;
+        [win addSubview:lbl];
+        [win bringSubviewToFront:lbl];
+        [UIView animateWithDuration:0.3 animations:^{ lbl.alpha = 1; }];
+    });
+}
+
+static void HideScanningBanner(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *win = nil;
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
+            if (s.activationState == UISceneActivationStateForegroundActive)
+                { win = s.windows.firstObject; break; }
+        UIView *v = [win viewWithTag:9878];
+        [UIView animateWithDuration:0.3 animations:^{ v.alpha = 0; }
+                         completion:^(BOOL d) { [v removeFromSuperview]; }];
+    });
+}
+
+/// يفحص كل الأوفستات ثم يحاول الإصلاح التلقائي إذا فيه خطأ
 static BOOL ValidateOffsets(void) {
     if (gOffsetChecked) return gOffsetsValid;
     gOffsetChecked = YES;
 
     NSMutableArray<NSString *> *bad = [NSMutableArray array];
 
-    // ── Global Addresses ─────────────────────────────────────────
+    // ── Global Addresses ──────────────────────────────────────────
     uint64_t gw = ReadPtr(OFF(OFF_GW));
-    if (!gw) [bad addObject:[NSString stringWithFormat:@"OFF_GW (UWorld) → 0x%llx",     OFF(OFF_GW)]];
+    if (!gw) [bad addObject:[NSString stringWithFormat:@"UWorld → 0x%llx",     OFF(OFF_GW)]];
 
     uint64_t gn = ReadPtr(OFF(OFF_GN));
-    if (!gn) [bad addObject:[NSString stringWithFormat:@"OFF_GN (GName) → 0x%llx",      OFF(OFF_GN)]];
+    if (!gn) [bad addObject:[NSString stringWithFormat:@"GNames → 0x%llx",      OFF(OFF_GN)]];
 
-    // ── Chain من UWorld (نفحصها بس لو gw صح) ──────────────────
     uint64_t lvl = gw ? ReadPtr(gw + OFF(OFF_PL)) : 0;
-    if (gw && !lvl) [bad addObject:[NSString stringWithFormat:@"OFF_PL (PersistentLevel) → 0x%llx", OFF(OFF_PL)]];
+    if (gw && !lvl) [bad addObject:[NSString stringWithFormat:@"PersistentLevel → 0x%llx", OFF(OFF_PL)]];
 
     uint64_t gi = gw ? ReadPtr(gw + OFF(OFF_GI)) : 0;
-    if (gw && !gi)  [bad addObject:[NSString stringWithFormat:@"OFF_GI (GameInstance) → 0x%llx",    OFF(OFF_GI)]];
+    if (gw && !gi) [bad addObject:[NSString stringWithFormat:@"GameInstance → 0x%llx",    OFF(OFF_GI)]];
 
-    // ActorArray + Count
     uint64_t act = lvl ? ReadPtr(lvl + OFF(OFF_AA)) : 0;
-    int32_t  cnt = lvl ? ReadInt(lvl  + OFF(OFF_AC)) : 0;
+    int32_t  cnt = lvl ? ReadInt(lvl + OFF(OFF_AC)) : 0;
     if (lvl && (!act || cnt <= 0 || cnt > 5000))
-        [bad addObject:[NSString stringWithFormat:@"OFF_AA/OFF_AC (ActorArray) → act=0x%llx cnt=%d",
-                        OFF(OFF_AA), cnt]];
+        [bad addObject:[NSString stringWithFormat:@"ActorArray (cnt=%d) → 0x%llx", cnt, OFF(OFF_AA)]];
 
-    // LocalPlayers chain
     uint64_t lpArr = gi ? ReadPtr(gi + OFF(OFF_LP)) : 0;
-    if (gi && !lpArr) [bad addObject:[NSString stringWithFormat:@"OFF_LP (LocalPlayers) → 0x%llx", OFF(OFF_LP)]];
+    if (gi && !lpArr) [bad addObject:[NSString stringWithFormat:@"LocalPlayers → 0x%llx", OFF(OFF_LP)]];
 
-    // PlayerController
     uint64_t lp = lpArr ? ReadPtr(lpArr) : 0;
     uint64_t pc = lp    ? ReadPtr(lp + OFF(OFF_PC)) : 0;
     if (lpArr && lp && !pc)
-        [bad addObject:[NSString stringWithFormat:@"OFF_PC (PlayerController) → 0x%llx", OFF(OFF_PC)]];
+        [bad addObject:[NSString stringWithFormat:@"PlayerController → 0x%llx", OFF(OFF_PC)]];
 
-    // ControlRotation (صحّة offset الـ Aim)
     if (pc) {
         float rot[3] = {0};
         if (!ReadMem(pc + OFF(OFF_CR), rot, 12))
-            [bad addObject:[NSString stringWithFormat:@"OFF_CR (ControlRotation) → 0x%llx", OFF(OFF_CR)]];
+            [bad addObject:[NSString stringWithFormat:@"ControlRotation → 0x%llx", OFF(OFF_CR)]];
     }
 
-    // ── ViewMatrix ──────────────────────────────────────────────
-    float vm[16] = {0};
-    BOOL hasVal  = NO;
+    float vm[16] = {0}; BOOL hasVal = NO;
     if (ReadMem(OFF(OFF_VMC), vm, 64))
         for (int i = 0; i < 16; i++) if (vm[i] != 0.0f) { hasVal = YES; break; }
     if (!hasVal)
-        [bad addObject:[NSString stringWithFormat:@"OFF_VMC (ViewMatrix) → 0x%llx", OFF(OFF_VMC)]];
+        [bad addObject:[NSString stringWithFormat:@"ViewMatrix → 0x%llx", OFF(OFF_VMC)]];
 
-    // ── BoneBase (نتحقق إن العنوان قابل للقراءة) ───────────────
     if (OFF(OFF_BA) && !ReadPtr(OFF(OFF_BA)))
-        [bad addObject:[NSString stringWithFormat:@"OFF_BA (BonePos) → 0x%llx", OFF(OFF_BA)]];
+        [bad addObject:[NSString stringWithFormat:@"BonePos → 0x%llx", OFF(OFF_BA)]];
 
-    if (bad.count > 0) {
-        ShowOffsetErrors(bad);
+    // ── لا أخطاء → ✅ ─────────────────────────────────────────────
+    if (bad.count == 0) {
+        gOffsetsValid = YES;
+        return YES;
+    }
+
+    // ── فيه أخطاء → جرب الإصلاح التلقائي (مرة واحدة فقط) ─────────
+    if (!gAutoFixInProgress) {
+        gAutoFixInProgress = YES;
+
+        // بانر "Scanning…" أثناء البحث
+        ShowScanningBanner();
+
+        // الإصلاح على background thread عشان ما يجمّد الـ UI
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+            NSArray<NSString *> *fixed = AutoFixOffsets();
+            HideScanningBanner();
+            gAutoFixInProgress = NO;
+
+            if (fixed.count > 0) {
+                // أعد التحقق
+                gOffsetChecked = NO;
+                BOOL nowOk = ValidateOffsets();
+                if (nowOk) {
+                    // ✅ تم الإصلاح بالكامل
+                    ShowFixSuccess(fixed);
+                    return;
+                }
+                // ⚠️ بعض الأوفستات اتصلحت بس باقي فيه مشاكل
+                ShowFixSuccess(fixed);
+                // نعيد فحص الباقي ونعرض الأخطاء المتبقية
+                NSMutableArray<NSString *> *stillBad = [NSMutableArray array];
+                uint64_t gw2 = ReadPtr(OFF(OFF_GW));
+                if (!gw2) [stillBad addObject:@"UWorld"];
+                uint64_t gn2 = ReadPtr(OFF(OFF_GN));
+                if (!gn2) [stillBad addObject:@"GNames"];
+                float vm2[16] = {0}; BOOL ok2 = NO;
+                if (ReadMem(OFF(OFF_VMC), vm2, 64))
+                    for (int i = 0; i < 16; i++) if (vm2[i] != 0.0f) { ok2 = YES; break; }
+                if (!ok2) [stillBad addObject:@"ViewMatrix"];
+                if (stillBad.count) {
+                    NSMutableArray *err = [NSMutableArray array];
+                    for (NSString *n in stillBad)
+                        [err addObject:[NSString stringWithFormat:@"%@ – still invalid", n]];
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
+                                   dispatch_get_main_queue(), ^{ ShowOffsetErrors(err); });
+                }
+                return;
+            }
+
+            // لم يُصلح شيء → عرض الأخطاء الأصلية
+            NSMutableArray<NSString *> *errList = [NSMutableArray array];
+            for (NSString *e in bad)
+                [errList addObject:[NSString stringWithFormat:@"%@ [unresolved]", e]];
+            ShowOffsetErrors(errList);
+        });
+
+        // نرجع NO مؤقتاً، الـ background thread هو اللي يكمل
         return NO;
     }
 
-    gOffsetsValid = YES;
-    return YES;
+    gOffsetsValid = NO;
+    return NO;
 }
 
 // ====================================================================
@@ -434,17 +800,17 @@ static void DoAimbot(NSArray *players) {
 
     float yaw   = atan2f(dy, dx) * (180.0f / M_PI);
     float pitch = -atan2f(dz, sqrtf(dx*dx + dy*dy)) * (180.0f / M_PI);
-    if (yaw < 0)      yaw   += 360.0f;
-    if (pitch > 89.0f)  pitch = 89.0f;
+    if (yaw < 0)       yaw   += 360.0f;
+    if (pitch >  89.0f) pitch = 89.0f;
     if (pitch < -89.0f) pitch = -89.0f;
 
     yaw   += ((arc4random() % 100) - 50) / 500.0f;
     pitch += ((arc4random() % 100) - 50) / 500.0f;
 
-    uint64_t crAddr  = pc + OFF(OFF_CR);
-    float curPitch   = ReadFloat(crAddr);
-    float curYaw     = ReadFloat(crAddr + 4);
-    float dist       = best.distance;
+    uint64_t crAddr = pc + OFF(OFF_CR);
+    float curPitch  = ReadFloat(crAddr);
+    float curYaw    = ReadFloat(crAddr + 4);
+    float dist      = best.distance;
     float factor;
 
     if (sp <= 50.0f)       factor = (dist > 50.0f)  ? 0.08f : 0.15f;
@@ -525,15 +891,14 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 @implementation ESPOverlayView {
-    // ── RavFen Screensaver Label (bouncing around full screen) ──
     UILabel       *_wm;
-    CAShapeLayer  *_rayLayer;   // أشعة بنفسجية تخرج من الـ label
+    CAShapeLayer  *_rayLayer;
     NSTimer       *_wmTmr;
-    CGFloat        _wmVX;       // velocity X
-    CGFloat        _wmVY;       // velocity Y
-    CGFloat        _wmX;        // current X position
-    CGFloat        _wmY;        // current Y position
-    CGFloat        _rayPhase;   // زاوية دوران الأشعة (بطيء)
+    CGFloat        _wmVX;
+    CGFloat        _wmVY;
+    CGFloat        _wmX;
+    CGFloat        _wmY;
+    CGFloat        _rayPhase;
 }
 
 - (instancetype)initWithFrame:(CGRect)f {
@@ -566,20 +931,18 @@ static void *AntiDetachLoop(void *arg) {
     _infoLabel.text          = @"";
     [self addSubview:_infoLabel];
 
-    // ── RavFen bouncing watermark label ──────────────────────────
+    // ── RavFen bouncing watermark ─────────────────────────────
     _wm                        = [[UILabel alloc] init];
     _wm.text                   = @"RavFen";
     _wm.textColor              = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.55];
     _wm.font                   = [UIFont boldSystemFontOfSize:13];
     _wm.userInteractionEnabled = NO;
-    // توهج بنفسجي خفيف على النص نفسه
     _wm.layer.shadowColor      = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:1.0].CGColor;
     _wm.layer.shadowRadius     = 7.0;
     _wm.layer.shadowOpacity    = 0.65;
     _wm.layer.shadowOffset     = CGSizeMake(0, 0);
     [_wm sizeToFit];
 
-    // ── طبقة الأشعة البنفسجية (تُرسم خلف الـ label) ──────────
     _rayLayer              = [CAShapeLayer layer];
     _rayLayer.strokeColor  = [UIColor colorWithRed:0.545 green:0.361 blue:0.965 alpha:0.30].CGColor;
     _rayLayer.fillColor    = [UIColor clearColor].CGColor;
@@ -594,18 +957,15 @@ static void *AntiDetachLoop(void *arg) {
     [self addSubview:_wm];
     _rayPhase = 0;
 
-    // Start at random position somewhere in the middle area
     _wmX  = f.size.width  * 0.3f + (arc4random() % (int)(f.size.width  * 0.4f));
     _wmY  = f.size.height * 0.3f + (arc4random() % (int)(f.size.height * 0.4f));
 
-    // Random initial velocity: ±1.2 to ±2.2 pts per tick
     CGFloat baseSpeed = 1.6f;
     _wmVX = (arc4random() % 2 == 0 ? 1 : -1) * (baseSpeed + ((arc4random() % 10) / 10.0f));
     _wmVY = (arc4random() % 2 == 0 ? 1 : -1) * (baseSpeed + ((arc4random() % 10) / 10.0f));
 
     _wm.center = CGPointMake(_wmX, _wmY);
 
-    // Timer at ~60fps for smooth motion
     _wmTmr = [NSTimer scheduledTimerWithTimeInterval:(1.0 / 60.0) repeats:YES block:^(NSTimer *t) {
         if (!self.window) { [t invalidate]; return; }
 
@@ -617,32 +977,26 @@ static void *AntiDetachLoop(void *arg) {
         _wmX += _wmVX;
         _wmY += _wmVY;
 
-        // Bounce off edges
         if (_wmX - hw <= 0) {
-            _wmX  = hw;
-            _wmVX = fabs(_wmVX);
-            // Slightly randomise speed on bounce for natural feel
+            _wmX  = hw; _wmVX = fabs(_wmVX);
             _wmVX += ((arc4random() % 4) - 2) / 10.0;
             if (fabs(_wmVX) < 0.8) _wmVX = 0.8;
             if (fabs(_wmVX) > 3.0) _wmVX = 3.0;
         }
         if (_wmX + hw >= lw) {
-            _wmX  = lw - hw;
-            _wmVX = -fabs(_wmVX);
+            _wmX  = lw - hw; _wmVX = -fabs(_wmVX);
             _wmVX -= ((arc4random() % 4) - 2) / 10.0;
             if (fabs(_wmVX) < 0.8) _wmVX = -0.8;
             if (fabs(_wmVX) > 3.0) _wmVX = -3.0;
         }
         if (_wmY - hh <= 0) {
-            _wmY  = hh;
-            _wmVY = fabs(_wmVY);
+            _wmY  = hh; _wmVY = fabs(_wmVY);
             _wmVY += ((arc4random() % 4) - 2) / 10.0;
             if (fabs(_wmVY) < 0.8) _wmVY = 0.8;
             if (fabs(_wmVY) > 3.0) _wmVY = 3.0;
         }
         if (_wmY + hh >= lh) {
-            _wmY  = lh - hh;
-            _wmVY = -fabs(_wmVY);
+            _wmY  = lh - hh; _wmVY = -fabs(_wmVY);
             _wmVY -= ((arc4random() % 4) - 2) / 10.0;
             if (fabs(_wmVY) < 0.8) _wmVY = -0.8;
             if (fabs(_wmVY) > 3.0) _wmVY = -3.0;
@@ -650,24 +1004,20 @@ static void *AntiDetachLoop(void *arg) {
 
         _wm.center = CGPointMake(_wmX, _wmY);
 
-        // ── رسم الأشعة البنفسجية من مركز الـ label ──────────────
-        // الأشعة تدور ببطء وتنبض مع الحركة
+        // ── أشعة بنفسجية تدور ────────────────────────────────
         _rayPhase += 0.018;
         NSInteger numRays = 8;
-        CGFloat   startR  = 10.0;            // بداية الشعاع من حافة الـ label
-        CGFloat   rayLen  = 18.0 + 5.0 * sinf(_rayPhase * 1.3); // نبض خفيف
+        CGFloat   startR  = 10.0;
+        CGFloat   rayLen  = 18.0 + 5.0 * sinf(_rayPhase * 1.3);
         UIBezierPath *rp  = [UIBezierPath bezierPath];
         for (NSInteger r = 0; r < numRays; r++) {
-            // كل شعاع يدور بزاوية مختلفة + دوران بطيء
             CGFloat angle = (M_PI * 2.0 / numRays) * r + _rayPhase;
             CGPoint s = CGPointMake(_wmX + startR * cos(angle),
                                     _wmY + startR * sin(angle));
             CGPoint e = CGPointMake(_wmX + (startR + rayLen) * cos(angle),
                                     _wmY + (startR + rayLen) * sin(angle));
-            [rp moveToPoint:s];
-            [rp addLineToPoint:e];
+            [rp moveToPoint:s]; [rp addLineToPoint:e];
         }
-        // أشعة وسطية أقصر (بين الـ 8 الرئيسية) لتعطي شكل نجمة ناعم
         CGFloat shortLen = rayLen * 0.45;
         for (NSInteger r = 0; r < numRays; r++) {
             CGFloat angle = (M_PI * 2.0 / numRays) * r + _rayPhase + (M_PI / numRays);
@@ -675,11 +1025,9 @@ static void *AntiDetachLoop(void *arg) {
                                     _wmY + startR * sin(angle));
             CGPoint e = CGPointMake(_wmX + (startR + shortLen) * cos(angle),
                                     _wmY + (startR + shortLen) * sin(angle));
-            [rp moveToPoint:s];
-            [rp addLineToPoint:e];
+            [rp moveToPoint:s]; [rp addLineToPoint:e];
         }
-        _rayLayer.path = rp.CGPath;
-        // نبض شفافية خفيف على طبقة الأشعة
+        _rayLayer.path    = rp.CGPath;
         _rayLayer.opacity = 0.22 + 0.12 * sinf(_rayPhase * 2.1);
     }];
     [[NSRunLoop mainRunLoop] addTimer:_wmTmr forMode:NSRunLoopCommonModes];
@@ -826,7 +1174,7 @@ static void *AntiDetachLoop(void *arg) {
 @end
 
 // ====================================================================
-// 🎨 Helper
+// 🎨 Helper Macros
 // ====================================================================
 #define CLR_BG          [UIColor colorWithRed:0.055 green:0.055 blue:0.075 alpha:1.00]
 #define CLR_PANEL       [UIColor colorWithRed:0.08  green:0.08  blue:0.11  alpha:0.97]
@@ -943,10 +1291,7 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 @end
 
 // ====================================================================
-// ◈ Menu View  (أفقي – Horizontal Layout  480 × 300)
-//   ┌──────── header 44px ─────────┐
-//   │ sidebar 72px │  content area │
-//   └──────────────┴───────────────┘
+// ◈ Menu View  (أفقي – 480 × 300)
 // ====================================================================
 @interface RavMenuView : UIView
 - (instancetype)initWithFrame:(CGRect)f overlayView:(ESPOverlayView *)ov;
@@ -954,22 +1299,19 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
 
 @implementation RavMenuView {
     NSInteger            _activeTab;
-    UIButton            *_tabBtns[4];       // AIMBOT | ESP | MEMORY | TIPS
+    UIButton            *_tabBtns[4];
     UIView              *_tabIndicators[4];
     UIView              *_pages[4];
 
-    // Aimbot controls
     UISwitch            *_as;
     UISegmentedControl  *_ms;
     UISlider            *_ss, *_smSlider;
     UILabel             *_sv, *_smv;
 
-    // ESP controls
     UISwitch            *_es, *_ls, *_bls;
     UISlider            *_ds;
     UILabel             *_dv;
 
-    // Memory controls
     UISwitch            *_chs;
     UISwitch            *_sts;
     UISwitch            *_vcs;
@@ -978,6 +1320,10 @@ static UILabel *RavLabel(NSString *text, UIFont *font, UIColor *color, CGRect fr
     ESPOverlayView      *_ev;
     UIPanGestureRecognizer *_pan;
     CGPoint              _startCenter;
+
+    // لمؤشر حالة الأوفستات في تبويب MEMORY
+    UILabel             *_offStatusLbl;
+    UIView              *_offStatusCard;
 }
 
 static UIView *Sep(CGFloat x, CGFloat y, CGFloat w) {
@@ -1018,12 +1364,11 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
 - (void)panMenu:(UIPanGestureRecognizer *)g {
     UIView *v = self.superview; if (!v) return;
-    if (g.state == UIGestureRecognizerStateBegan) {
+    if (g.state == UIGestureRecognizerStateBegan)
         _startCenter = self.center;
-    } else if (g.state == UIGestureRecognizerStateChanged) {
-        CGPoint t = [g translationInView:v];
-        self.center = CGPointMake(_startCenter.x + t.x, _startCenter.y + t.y);
-    }
+    else if (g.state == UIGestureRecognizerStateChanged)
+        self.center = CGPointMake(_startCenter.x + [g translationInView:v].x,
+                                  _startCenter.y + [g translationInView:v].y);
 }
 
 - (void)syncUI {
@@ -1046,13 +1391,13 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 }
 
 - (void)buildUI {
-    CGFloat mw    = self.bounds.size.width;   // 480
-    CGFloat mh    = self.bounds.size.height;  // 300
+    CGFloat mw    = self.bounds.size.width;
+    CGFloat mh    = self.bounds.size.height;
     CGFloat hdrH  = 44.0f;
     CGFloat sideW = 72.0f;
     CGFloat bodyH = mh - hdrH;
 
-    // ── Header ───────────────────────────────────────────────────
+    // ── Header ────────────────────────────────────────────────────
     UIView *hdr = [[UIView alloc] initWithFrame:CGRectMake(0, 0, mw, hdrH)];
     hdr.backgroundColor     = CLR_HDR;
     hdr.layer.cornerRadius  = 20;
@@ -1084,17 +1429,15 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [hdr addSubview:closeBtn];
 
-    // Separator under header
     [self addSubview:Sep(0, hdrH, mw)];
 
-    // ── Left Sidebar (vertical tabs) ─────────────────────────────
+    // ── Sidebar ───────────────────────────────────────────────────
     UIView *sidebar = [[UIView alloc] initWithFrame:CGRectMake(0, hdrH, sideW, bodyH)];
     sidebar.backgroundColor     = CLR_HDR;
     sidebar.layer.cornerRadius  = 20;
     sidebar.layer.maskedCorners = kCALayerMinXMaxYCorner;
     [self addSubview:sidebar];
 
-    // Separator right of sidebar
     UIView *sideSep = [[UIView alloc] initWithFrame:CGRectMake(sideW, hdrH, 0.5, bodyH)];
     sideSep.backgroundColor = CLR_SEP;
     [self addSubview:sideSep];
@@ -1108,7 +1451,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         UIButton *tb = [UIButton buttonWithType:UIButtonTypeSystem];
         tb.frame = CGRectMake(0, hdrH + i * tabH, sideW, tabH);
 
-        // Icon label
         UILabel *ico = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, sideW, tabH * 0.55)];
         ico.text          = tabIcons[i];
         ico.textColor     = (i == 0 ? tabColors[i] : CLR_MUTED);
@@ -1117,7 +1459,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         ico.tag           = 100 + i;
         [tb addSubview:ico];
 
-        // Name label
         UILabel *nm = [[UILabel alloc] initWithFrame:CGRectMake(0, tabH * 0.52, sideW, tabH * 0.42)];
         nm.text          = tabNames[i];
         nm.textColor     = (i == 0 ? tabColors[i] : CLR_MUTED);
@@ -1126,7 +1467,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         nm.tag           = 200 + i;
         [tb addSubview:nm];
 
-        // Active indicator bar (right edge)
         UIView *indicator = [[UIView alloc] initWithFrame:CGRectMake(sideW - 3, tabH * 0.2, 3, tabH * 0.6)];
         indicator.backgroundColor   = ((UIColor *)tabColors[i]);
         indicator.layer.cornerRadius = 1.5;
@@ -1140,7 +1480,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         [self addSubview:tb];
         _tabBtns[i] = tb;
 
-        // Row separator
         if (i < 3) {
             UIView *rs = [[UIView alloc] initWithFrame:CGRectMake(8, hdrH + (i + 1) * tabH - 0.25, sideW - 16, 0.5)];
             rs.backgroundColor = CLR_SEP;
@@ -1148,7 +1487,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         }
     }
 
-    // ── Content Area (right of sidebar) ──────────────────────────
     CGFloat cX = sideW + 1;
     CGFloat cW = mw - cX;
     CGRect  pageR = CGRectMake(cX, hdrH, cW, bodyH);
@@ -1193,7 +1531,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [page addSubview:_ms];
     y += 32;
 
-    // Speed row
     [page addSubview:RavLabel(@"Speed", [UIFont systemFontOfSize:9], CLR_MUTED,
                               CGRectMake(12, y, 50, 13))];
     _sv = RavLabel(@"120", [UIFont boldSystemFontOfSize:9], CLR_GOLD,
@@ -1211,7 +1548,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
     [page addSubview:Sep(12, y, pw)]; y += 10;
 
-    // Smoothing row
     [page addSubview:RavLabel(@"Smoothing", [UIFont systemFontOfSize:9], CLR_MUTED,
                               CGRectMake(12, y, 70, 13))];
     _smv = RavLabel(@"50%", [UIFont boldSystemFontOfSize:9], CLR_GOLD,
@@ -1326,7 +1662,7 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [vcCard addSubview:_vcs];
     y += 42;
 
-    // Status + TG link (side by side)
+    // Status + TG
     UIView *srvCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw * 0.48f, 26)];
     srvCard.backgroundColor   = [UIColor colorWithRed:0.06 green:0.11 blue:0.08 alpha:1.0];
     srvCard.layer.cornerRadius = 7;
@@ -1350,112 +1686,111 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [page addSubview:tgBtn];
     y += 32;
 
-    // ── حالة الأوفستات (✅ صح / ❌ اسم الغلط) ────────────────────
-    BOOL   offOk  = ValidateOffsets();
-    NSString *offTxt = offOk ? @"✅  Offsets: Valid" : @"❌  Offsets: Invalid – check screen";
+    // ── Offset Status Card (ديناميكي – يتحدث بعد الإصلاح) ────────
+    BOOL     offOk  = gOffsetsValid; // نستخدم الحالة المحفوظة (بعد الإصلاح)
+    NSString *offTxt = [self buildOffsetStatusText:offOk];
+    UIColor  *offBG  = offOk
+        ? [UIColor colorWithRed:0.04 green:0.12 blue:0.07 alpha:1.0]
+        : [UIColor colorWithRed:0.14 green:0.04 blue:0.04 alpha:1.0];
     UIColor  *offClr = offOk ? CLR_GREEN : CLR_RED;
-    UIView *offCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 20)];
-    offCard.backgroundColor   = [UIColor colorWithRed:(offOk?0.05:0.14)
-                                                green:(offOk?0.10:0.04)
-                                                 blue:(offOk?0.06:0.04) alpha:1.0];
-    offCard.layer.cornerRadius = 6;
-    [page addSubview:offCard];
-    UILabel *offLbl = RavLabel(offTxt, [UIFont boldSystemFontOfSize:8], offClr,
-                                CGRectMake(8, 4, pw - 16, 12));
-    offLbl.textAlignment = NSTextAlignmentCenter;
-    [offCard addSubview:offLbl];
+
+    _offStatusCard = [[UIView alloc] initWithFrame:CGRectMake(12, y, pw, 26)];
+    _offStatusCard.backgroundColor   = offBG;
+    _offStatusCard.layer.cornerRadius = 7;
+    [page addSubview:_offStatusCard];
+
+    _offStatusLbl = RavLabel(offTxt, [UIFont boldSystemFontOfSize:8], offClr,
+                              CGRectMake(8, 6, pw - 16, 14));
+    _offStatusLbl.textAlignment = NSTextAlignmentCenter;
+    [_offStatusCard addSubview:_offStatusLbl];
+
+    // زر "Re-scan" لإعادة الفحص يدوياً
+    UIButton *rescanBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    rescanBtn.frame = CGRectMake(12, y + 30, pw, 20);
+    [rescanBtn setTitle:@"⟳  Force Re-scan Offsets" forState:UIControlStateNormal];
+    [rescanBtn setTitleColor:CLR_MUTED forState:UIControlStateNormal];
+    rescanBtn.titleLabel.font = [UIFont boldSystemFontOfSize:8];
+    [rescanBtn addTarget:self action:@selector(forceRescan) forControlEvents:UIControlEventTouchUpInside];
+    [page addSubview:rescanBtn];
 }
 
-// ── TIPS Page (30 نصيحة أمنية مهمة جدا) ─────────────────────────
+- (NSString *)buildOffsetStatusText:(BOOL)ok {
+    if (ok && gAutoFixedCount > 0)
+        return [NSString stringWithFormat:@"🔧  Auto-Fixed %d · Valid", (int)gAutoFixedCount];
+    return ok ? @"✅  Offsets: Valid" : @"❌  Offsets: Invalid – scanning…";
+}
+
+/// يعيد الفحص والإصلاح يدوياً عند الضغط على "Re-scan"
+- (void)forceRescan {
+    gOffsetChecked  = NO;
+    gOffsetsValid   = NO;
+    gAutoFixedCount = 0;
+    _offStatusLbl.text      = @"⟳  Scanning…";
+    _offStatusLbl.textColor = CLR_ORANGE;
+    _offStatusCard.backgroundColor = [UIColor colorWithRed:0.14 green:0.10 blue:0.03 alpha:1.0];
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        BOOL ok = ValidateOffsets();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _offStatusLbl.text      = [self buildOffsetStatusText:ok];
+            _offStatusLbl.textColor = ok ? CLR_GREEN : CLR_RED;
+            _offStatusCard.backgroundColor = ok
+                ? [UIColor colorWithRed:0.04 green:0.12 blue:0.07 alpha:1.0]
+                : [UIColor colorWithRed:0.14 green:0.04 blue:0.04 alpha:1.0];
+        });
+    });
+}
+
+// ── TIPS Page (30 نصيحة) ─────────────────────────────────────────
 - (void)buildTipsPage:(CGRect)fr {
     UIView *page = [[UIView alloc] initWithFrame:fr];
     _pages[3] = page;
     [self addSubview:page];
 
-    // Header row
     [page addSubview:RavLabel(@"30 TIPS – PROTECTION GUIDE", [UIFont boldSystemFontOfSize:9],
                               CLR_ORANGE, CGRectMake(12, 10, fr.size.width - 24, 14))];
     [page addSubview:Sep(12, 26, fr.size.width - 24)];
 
-    // Scrollable tips list
     UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:
         CGRectMake(0, 30, fr.size.width, fr.size.height - 30)];
     scroll.showsHorizontalScrollIndicator = NO;
     scroll.showsVerticalScrollIndicator   = YES;
     [page addSubview:scroll];
 
-    // Tips data – 30 نصيحة مهمة جدا مطبقة 100%
     NSArray *tips = @[
-        // ═══ أولاً: حماية الذاكرة والبصمات الرقمية ═══
-        @[@"1", @"String Encryption",
-          @"تشفير النصوص الحساسة (XOR) وفكها ديناميكياً لمنع الفحص الساكن."],
-        @[@"2", @"Signature Obfuscation",
-          @"تغيير التوقيع الرقمي للملف تلقائياً مع كل Build لتصعيب رصده."],
-        @[@"3", @"Dynamic Memory",
-          @"تجنب التعديل الثابت على العناوين. اقرأ مؤقتاً ثم أعد القيم الأصلية."],
-        @[@"4", @"Class Renaming",
-          @"استخدم أسماء عشوائية للملفات والحزم والفئات لتشتيت أدوات الفحص."],
-        @[@"5", @"Inline Hooking",
-          @"الاعتماد على Inline Hooking المتطور بدلاً من تعديل جداول VMT."],
-        @[@"6", @"Page Protection",
-          @"غيّر صلاحيات صفحات الذاكرة إلى PAGE_NOACCESS فور الانتهاء منها."],
-        @[@"7", @"Function Spoofing",
-          @"اجعل Call Stack يبدو صادراً من المحرك الرسمي لتفادي الرصد."],
-        // ═══ ثانياً: سلامة بيئة التشغيل ═══
-        @[@"8", @"Log Filtering",
-          @"منع إرسال Crash Reports التي قد تكشف عن التعديلات."],
-        @[@"9", @"Honey Pot Detection",
-          @"افحص المؤشرات قبل الوصول للتأكد أنها ليست مصائد برمجية."],
-        @[@"10", @"Kernel-Level",
-          @"نفّذ العمليات الحساسة على Ring 0 بعيداً عن مراقبة Ring 3."],
-        @[@"11", @"Integrity Watchdog",
-          @"رصد توقيت فحوصات النظام وتجميد العمليات خلال الفحص النشط."],
-        @[@"12", @"Direct Syscalls",
-          @"استدعاء النظام مباشرة بدلاً من المرور عبر APIs الخاضعة للمراقبة."],
-        // ═══ ثالثاً: المدخلات والرسم ═══
-        @[@"13", @"Input Smoothing",
-          @"محاكاة حركات بشرية طبيعية مع تأخير ديناميكي لتفادي الأنماط الحادة."],
-        @[@"14", @"Boundary Limiter",
-          @"قصر العمليات على نطاق رؤية محدد لمنع الاستهلاك المبالغ فيه."],
-        @[@"15", @"Target Randomization",
-          @"توزيع نقاط المعالجة عشوائياً بدلاً من التركيز على نقطة ثابتة."],
-        @[@"16", @"State Check",
-          @"منع التفاعل مع العناصر إلا إذا كانت في حالة صالحة ونشطة."],
-        @[@"17", @"File Integrity",
-          @"تجنب تعديل ملفات النظام. استخدم الحقن المؤقت في الذاكرة فقط."],
-        @[@"18", @"Overlay Isolation",
-          @"عرض Overlay على طبقة منفصلة غير قابلة للالتقاط بأدوات الفحص."],
-        // ═══ رابعاً: إدارة السلوك ═══
-        @[@"19", @"Activity Rate",
-          @"قيود ذكية تمنع تجاوز الحدود المنطقية للعمليات في الدقيقة الواحدة."],
-        @[@"20", @"Proportional Adjust",
-          @"أبقِ المتغيرات قريبة من القيم الطبيعية لتفادي الفحص الإحصائي."],
-        @[@"21", @"Latency Simulation",
-          @"أرسل البيانات بتوافق مع معدل الاستجابة (Ping) لتجنب الفجوات الزمنية."],
-        @[@"22", @"Kill Switch",
-          @"زر طوارئ يعطّل كل الميزات فوراً عند استشعار مراقبة مكثفة."],
-        // ═══ خامساً: البناء والتحديثات ═══
-        @[@"23", @"Cloud Offsets",
-          @"جلب الـ Offsets من سيرفر سحابي آمن دورياً دون تحديث كامل."],
-        @[@"24", @"Secure Auth",
-          @"نظام تسجيل دخول مشفر مرتبط بسيرفر خارجي لحماية الكود."],
-        @[@"25", @"Canary Testing",
-          @"تشغيل حسابات اختبارية آلية لرصد أي مراقبة تلقائية."],
-        @[@"26", @"Feature Minimization",
-          @"استبعد الميزات غير المستقرة وركّز على الصامتة والأكثر أماناً."],
-        @[@"27", @"HWID Validation",
-          @"التحقق من هوية الجهاز (HWID) ومحاكاتها لتفادي الحظر الكامل."],
-        @[@"28", @"Traffic Encryption",
-          @"تشفير حركة المرور بين التطبيق والسيرفر لمنع تحليل البيانات."],
-        @[@"29", @"Control Flow Flatten",
-          @"تعمية تجعل مسار التدفق معقداً جداً أمام أدوات الهندسة العكسية."],
-        @[@"30", @"Native C++ NDK",
-          @"اكتب الأجزاء الحساسة بـ C++ مباشرة – تترجم لآلة وتصعب قراءتها."],
+        @[@"1",  @"String Encryption",      @"تشفير النصوص الحساسة (XOR) وفكها ديناميكياً لمنع الفحص الساكن."],
+        @[@"2",  @"Signature Obfuscation",   @"تغيير التوقيع الرقمي للملف تلقائياً مع كل Build لتصعيب رصده."],
+        @[@"3",  @"Dynamic Memory",          @"تجنب التعديل الثابت على العناوين. اقرأ مؤقتاً ثم أعد القيم الأصلية."],
+        @[@"4",  @"Class Renaming",          @"استخدم أسماء عشوائية للملفات والحزم والفئات لتشتيت أدوات الفحص."],
+        @[@"5",  @"Inline Hooking",          @"الاعتماد على Inline Hooking المتطور بدلاً من تعديل جداول VMT."],
+        @[@"6",  @"Page Protection",         @"غيّر صلاحيات صفحات الذاكرة إلى PAGE_NOACCESS فور الانتهاء منها."],
+        @[@"7",  @"Function Spoofing",       @"اجعل Call Stack يبدو صادراً من المحرك الرسمي لتفادي الرصد."],
+        @[@"8",  @"Log Filtering",           @"منع إرسال Crash Reports التي قد تكشف عن التعديلات."],
+        @[@"9",  @"Honey Pot Detection",     @"افحص المؤشرات قبل الوصول للتأكد أنها ليست مصائد برمجية."],
+        @[@"10", @"Kernel-Level",            @"نفّذ العمليات الحساسة على Ring 0 بعيداً عن مراقبة Ring 3."],
+        @[@"11", @"Integrity Watchdog",      @"رصد توقيت فحوصات النظام وتجميد العمليات خلال الفحص النشط."],
+        @[@"12", @"Direct Syscalls",         @"استدعاء النظام مباشرة بدلاً من المرور عبر APIs الخاضعة للمراقبة."],
+        @[@"13", @"Input Smoothing",         @"محاكاة حركات بشرية طبيعية مع تأخير ديناميكي لتفادي الأنماط الحادة."],
+        @[@"14", @"Boundary Limiter",        @"قصر العمليات على نطاق رؤية محدد لمنع الاستهلاك المبالغ فيه."],
+        @[@"15", @"Target Randomization",    @"توزيع نقاط المعالجة عشوائياً بدلاً من التركيز على نقطة ثابتة."],
+        @[@"16", @"State Check",             @"منع التفاعل مع العناصر إلا إذا كانت في حالة صالحة ونشطة."],
+        @[@"17", @"File Integrity",          @"تجنب تعديل ملفات النظام. استخدم الحقن المؤقت في الذاكرة فقط."],
+        @[@"18", @"Overlay Isolation",       @"عرض Overlay على طبقة منفصلة غير قابلة للالتقاط بأدوات الفحص."],
+        @[@"19", @"Activity Rate",           @"قيود ذكية تمنع تجاوز الحدود المنطقية للعمليات في الدقيقة الواحدة."],
+        @[@"20", @"Proportional Adjust",     @"أبقِ المتغيرات قريبة من القيم الطبيعية لتفادي الفحص الإحصائي."],
+        @[@"21", @"Latency Simulation",      @"أرسل البيانات بتوافق مع معدل الاستجابة (Ping) لتجنب الفجوات الزمنية."],
+        @[@"22", @"Kill Switch",             @"زر طوارئ يعطّل كل الميزات فوراً عند استشعار مراقبة مكثفة."],
+        @[@"23", @"Cloud Offsets",           @"جلب الـ Offsets من سيرفر سحابي آمن دورياً دون تحديث كامل."],
+        @[@"24", @"Secure Auth",             @"نظام تسجيل دخول مشفر مرتبط بسيرفر خارجي لحماية الكود."],
+        @[@"25", @"Canary Testing",          @"تشغيل حسابات اختبارية آلية لرصد أي مراقبة تلقائية."],
+        @[@"26", @"Feature Minimization",    @"استبعد الميزات غير المستقرة وركّز على الصامتة والأكثر أماناً."],
+        @[@"27", @"HWID Validation",         @"التحقق من هوية الجهاز (HWID) ومحاكاتها لتفادي الحظر الكامل."],
+        @[@"28", @"Traffic Encryption",      @"تشفير حركة المرور بين التطبيق والسيرفر لمنع تحليل البيانات."],
+        @[@"29", @"Control Flow Flatten",    @"تعمية تجعل مسار التدفق معقداً جداً أمام أدوات الهندسة العكسية."],
+        @[@"30", @"Native C++ NDK",          @"اكتب الأجزاء الحساسة بـ C++ مباشرة – تترجم لآلة وتصعب قراءتها."],
     ];
 
-    CGFloat ty   = 8;
-    CGFloat tw   = scroll.bounds.size.width - 16;
-    // Category section headers
+    CGFloat ty = 8, tw = scroll.bounds.size.width - 16;
     NSDictionary *catHeaders = @{
         @0:  @"◆ Memory & Signatures",
         @7:  @"◆ Runtime Integrity",
@@ -1466,19 +1801,14 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 
     for (NSInteger i = 0; i < (NSInteger)tips.count; i++) {
         NSArray *tip = tips[i];
-
-        // Category header if applicable
         NSString *cat = catHeaders[@(i)];
         if (cat) {
-            UILabel *catLbl = [[UILabel alloc] initWithFrame:CGRectMake(8, ty, tw, 13)];
-            catLbl.text      = cat;
-            catLbl.textColor = CLR_ORANGE;
-            catLbl.font      = [UIFont boldSystemFontOfSize:7.5f];
-            [scroll addSubview:catLbl];
-            ty += 16;
+            UILabel *cl = [[UILabel alloc] initWithFrame:CGRectMake(8, ty, tw, 13)];
+            cl.text      = cat; cl.textColor = CLR_ORANGE;
+            cl.font      = [UIFont boldSystemFontOfSize:7.5f];
+            [scroll addSubview:cl]; ty += 16;
         }
 
-        // Tip card
         UIView *card = [[UIView alloc] initWithFrame:CGRectMake(8, ty, tw, 36)];
         card.backgroundColor    = [UIColor colorWithRed:0.09 green:0.09 blue:0.12 alpha:1.0];
         card.layer.cornerRadius = 8;
@@ -1486,35 +1816,27 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         card.layer.borderColor  = CLR_SEP.CGColor;
         [scroll addSubview:card];
 
-        // Number badge
         UILabel *num = [[UILabel alloc] initWithFrame:CGRectMake(6, 6, 20, 20)];
-        num.text               = tip[0];
-        num.textColor          = CLR_ORANGE;
+        num.text               = tip[0]; num.textColor = CLR_ORANGE;
         num.font               = [UIFont boldSystemFontOfSize:7.5f];
         num.textAlignment      = NSTextAlignmentCenter;
         num.backgroundColor    = CLR_ORANGE_DIM;
-        num.layer.cornerRadius = 4;
-        num.clipsToBounds      = YES;
+        num.layer.cornerRadius = 4; num.clipsToBounds = YES;
         [card addSubview:num];
 
-        // Title
         UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(30, 4, tw - 36, 13)];
-        title.text      = tip[1];
-        title.textColor = CLR_TEXT;
-        title.font      = [UIFont boldSystemFontOfSize:8.5f];
+        title.text = tip[1]; title.textColor = CLR_TEXT;
+        title.font = [UIFont boldSystemFontOfSize:8.5f];
         [card addSubview:title];
 
-        // Description
         UILabel *desc = [[UILabel alloc] initWithFrame:CGRectMake(30, 17, tw - 36, 16)];
-        desc.text           = tip[2];
-        desc.textColor      = CLR_MUTED;
-        desc.font           = [UIFont systemFontOfSize:7.5f];
-        desc.numberOfLines  = 2;
+        desc.text          = tip[2]; desc.textColor = CLR_MUTED;
+        desc.font          = [UIFont systemFontOfSize:7.5f];
+        desc.numberOfLines = 2;
         [card addSubview:desc];
 
         ty += 42;
     }
-
     scroll.contentSize = CGSizeMake(scroll.bounds.size.width, ty + 10);
 }
 
@@ -1531,30 +1853,39 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
         UIColor *c        = active ? tabColors[i] : CLR_MUTED;
         UILabel *ico      = (UILabel *)[_tabBtns[i] viewWithTag:100 + i];
         UILabel *nm       = (UILabel *)[_tabBtns[i] viewWithTag:200 + i];
-        ico.textColor     = c;
-        nm.textColor      = c;
+        ico.textColor     = c; nm.textColor = c;
         _tabIndicators[i].hidden = !active;
     }
 
-    UIView *outPage = _pages[prev];
-    UIView *inPage  = _pages[idx];
-    inPage.alpha  = 0;
-    inPage.hidden = NO;
-    [UIView animateWithDuration:0.18 animations:^{ outPage.alpha = 0; } completion:^(BOOL d) {
+    // عند فتح تبويب MEM نحدّث حالة الأوفستات
+    if (idx == 2 && _offStatusLbl) {
+        NSString *txt  = [self buildOffsetStatusText:gOffsetsValid];
+        UIColor  *clr  = gOffsetsValid ? CLR_GREEN : CLR_RED;
+        _offStatusLbl.text      = txt;
+        _offStatusLbl.textColor = clr;
+        _offStatusCard.backgroundColor = gOffsetsValid
+            ? [UIColor colorWithRed:0.04 green:0.12 blue:0.07 alpha:1.0]
+            : [UIColor colorWithRed:0.14 green:0.04 blue:0.04 alpha:1.0];
+    }
+
+    UIView *outPage = _pages[prev], *inPage = _pages[idx];
+    inPage.alpha = 0; inPage.hidden = NO;
+    [UIView animateWithDuration:0.18 animations:^{ outPage.alpha = 0; }
+                     completion:^(BOOL d) {
         outPage.hidden = YES;
         [UIView animateWithDuration:0.18 animations:^{ inPage.alpha = 1; }];
     }];
 }
 
 - (void)openTG { [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/RavFenupdate"] options:@{} completionHandler:nil]; }
-- (void)tgA    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotEnabled  = _as.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)tgE    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espEnabled     = _es.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)tgL    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espLine        = _ls.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)tgB    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espBulletLine  = _bls.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgA    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotEnabled    = _as.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgE    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espEnabled       = _es.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgL    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espLine          = _ls.isOn;  pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)tgB    { pthread_mutex_lock(&g_ConfigMutex); gConfig.espBulletLine    = _bls.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgCH   { pthread_mutex_lock(&g_ConfigMutex); gConfig.crosshairEnabled = _chs.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgST   { pthread_mutex_lock(&g_ConfigMutex); gConfig.stabilityEnabled = _sts.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)tgVC   { pthread_mutex_lock(&g_ConfigMutex); gConfig.visCheckEnabled  = _vcs.isOn; pthread_mutex_unlock(&g_ConfigMutex); }
-- (void)mCh    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotMode     = (AimbotMode)(_ms.selectedSegmentIndex + 1); pthread_mutex_unlock(&g_ConfigMutex); }
+- (void)mCh    { pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotMode = (AimbotMode)(_ms.selectedSegmentIndex + 1); pthread_mutex_unlock(&g_ConfigMutex); }
 - (void)sCh {
     float v = _ss.value;
     pthread_mutex_lock(&g_ConfigMutex); gConfig.aimbotSpeed = v; pthread_mutex_unlock(&g_ConfigMutex);
@@ -1596,10 +1927,9 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
 }
 
 - (UIWindow *)keyWindow {
-    for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes) {
+    for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
         if (s.activationState == UISceneActivationStateForegroundActive)
             return s.windows.firstObject;
-    }
     return nil;
 }
 
@@ -1615,7 +1945,6 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     [UIView animateWithDuration:0.3 animations:^{ fb.alpha = 1; }];
 }
 
-// Menu size: 480 × 300 (أفقي – horizontal)
 - (void)presentMenuIn:(UIWindow *)k {
     CGFloat mw = MIN(480.0f, k.bounds.size.width  - 30);
     CGFloat mh = 300.0f;
@@ -1628,11 +1957,8 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     m.transform = CGAffineTransformMakeScale(0.88, 0.88);
     [k addSubview:m]; [k bringSubviewToFront:m];
     pthread_mutex_lock(&g_ConfigMutex); gConfig.menuVisible = YES; pthread_mutex_unlock(&g_ConfigMutex);
-    [UIView animateWithDuration:0.3
-                          delay:0
-         usingSpringWithDamping:0.7
-          initialSpringVelocity:0.6
-                        options:0
+    [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.7
+          initialSpringVelocity:0.6 options:0
                      animations:^{ m.alpha = 1; m.transform = CGAffineTransformIdentity; }
                      completion:nil];
 }
@@ -1649,40 +1975,28 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     self = [super initWithFrame:f];
     if (!self) return nil;
     self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
-
     CGFloat cx = f.size.width * 0.5, cy = f.size.height * 0.42;
 
     UILabel *mono = [[UILabel alloc] initWithFrame:CGRectMake(cx - 30, cy - 22, 60, 44)];
-    mono.text          = @"RF";
-    mono.textColor     = CLR_VIOLET;
-    mono.font          = [UIFont boldSystemFontOfSize:30];
-    mono.textAlignment = NSTextAlignmentCenter;
-    mono.alpha         = 0;
+    mono.text = @"RF"; mono.textColor = CLR_VIOLET;
+    mono.font = [UIFont boldSystemFontOfSize:30]; mono.textAlignment = NSTextAlignmentCenter;
+    mono.alpha = 0;
     [self addSubview:mono];
 
     UILabel *name = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 90, f.size.width, 28)];
-    name.text          = @"RAVFEN  WRAITH";
-    name.textColor     = CLR_TEXT;
-    name.font          = [UIFont boldSystemFontOfSize:18];
-    name.textAlignment = NSTextAlignmentCenter;
-    name.alpha         = 0;
+    name.text = @"RAVFEN  WRAITH"; name.textColor = CLR_TEXT;
+    name.font = [UIFont boldSystemFontOfSize:18]; name.textAlignment = NSTextAlignmentCenter;
+    name.alpha = 0;
     [self addSubview:name];
 
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 120, f.size.width, 20)];
-    ver.text          = @"v7.3  ·  PUBG Mobile 4.5.0 TW";
-    ver.textColor     = CLR_MUTED;
-    ver.font          = [UIFont systemFontOfSize:11];
-    ver.textAlignment = NSTextAlignmentCenter;
-    ver.alpha         = 0;
+    ver.text = @"v7.3  ·  PUBG Mobile 4.5.0 TW"; ver.textColor = CLR_MUTED;
+    ver.font = [UIFont systemFontOfSize:11]; ver.textAlignment = NSTextAlignmentCenter;
+    ver.alpha = 0;
     [self addSubview:ver];
 
-    [UIView animateWithDuration:0.6 delay:0.1 options:0 animations:^{
-        mono.alpha = 1;
-    } completion:nil];
-    [UIView animateWithDuration:0.5 delay:0.5 options:0 animations:^{
-        name.alpha = 1; ver.alpha = 1;
-    } completion:nil];
-
+    [UIView animateWithDuration:0.6 delay:0.1 options:0 animations:^{ mono.alpha = 1; } completion:nil];
+    [UIView animateWithDuration:0.5 delay:0.5 options:0 animations:^{ name.alpha = 1; ver.alpha = 1; } completion:nil];
     return self;
 }
 @end
@@ -1701,22 +2015,14 @@ static UISwitch *StyledSwitch(UIColor *onColor) {
     if (!self) return nil;
     self.backgroundColor = [UIColor colorWithRed:0.04 green:0.04 blue:0.06 alpha:1.0];
 
-    CGFloat cy = f.size.height * 0.45;
-
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, cy + 44, f.size.width, 26)];
-    lbl.text          = @"TOUCH  TO  ARM";
-    lbl.textColor     = CLR_TEXT;
-    lbl.font          = [UIFont boldSystemFontOfSize:14];
-    lbl.textAlignment = NSTextAlignmentCenter;
-    lbl.alpha         = 0;
+    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, f.size.height * 0.45 + 44, f.size.width, 26)];
+    lbl.text = @"TOUCH  TO  ARM"; lbl.textColor = CLR_TEXT;
+    lbl.font = [UIFont boldSystemFontOfSize:14]; lbl.textAlignment = NSTextAlignmentCenter;
+    lbl.alpha = 0;
     [self addSubview:lbl];
+    [UIView animateWithDuration:0.5 delay:0.3 options:0 animations:^{ lbl.alpha = 1; } completion:nil];
 
-    [UIView animateWithDuration:0.5 delay:0.3 options:0
-                     animations:^{ lbl.alpha = 1; }
-                     completion:nil];
-
-    UITapGestureRecognizer *tg = [[UITapGestureRecognizer alloc]
-        initWithTarget:self action:@selector(tapped)];
+    UITapGestureRecognizer *tg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped)];
     [self addGestureRecognizer:tg];
     return self;
 }
@@ -1739,11 +2045,9 @@ static void Launch(void) {
 
     dispatch_async(dispatch_get_main_queue(), ^{
         UIWindow *k = nil;
-        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes) {
-            if (s.activationState == UISceneActivationStateForegroundActive) {
-                k = s.windows.firstObject; break;
-            }
-        }
+        for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes)
+            if (s.activationState == UISceneActivationStateForegroundActive)
+                { k = s.windows.firstObject; break; }
         if (!k) return;
 
         RavSplashView *sp = [[RavSplashView alloc] initWithFrame:k.bounds];
@@ -1776,9 +2080,8 @@ static void Launch(void) {
                         pthread_mutex_lock(&g_ConfigMutex);
                         gConfig.menuVisible = YES;
                         pthread_mutex_unlock(&g_ConfigMutex);
-                        [UIView animateWithDuration:0.3 delay:0
-                             usingSpringWithDamping:0.7 initialSpringVelocity:0.6
-                                            options:0
+                        [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.7
+                              initialSpringVelocity:0.6 options:0
                                          animations:^{ m.alpha = 1; m.transform = CGAffineTransformIdentity; }
                                          completion:nil];
                     };
@@ -1799,18 +2102,16 @@ static void Init(void) {
     GetBaseAddress();
     InitOffsets();
 
-    // 🔥 فحص الأوفستات – لو في واحد غلط يظهر اسمه بالشاشة ويوقف
-    if (!ValidateOffsets()) {
-        // يأخر الـ UI شوي حتى تتجهز النافذة ثم يعرض الخطأ مجدداً
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            // أعد استدعاء ValidateOffsets ليعرض البانر بعد تجهز الـ window
-            gOffsetChecked = NO;
-            ValidateOffsets();
-        });
-        return; // لا تشغل باقي الكود
-    }
+    // ── فحص الأوفستات مع الإصلاح التلقائي ────────────────────────
+    // ValidateOffsets() نفسها تستدعي AutoFixOffsets() لو فيه مشاكل
+    // وتعرض البانر المناسب (أخضر = تم الإصلاح، أحمر = فشل)
+    // نشغّله على background thread عشان ما يبطّئ الـ Init
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        ValidateOffsets();
+    });
 
+    // ── تهيئة الـ config ──────────────────────────────────────────
     pthread_mutex_lock(&g_ConfigMutex);
     gConfig.aimbotEnabled    = NO;
     gConfig.aimbotSpeed      = 120.0f;
