@@ -7,7 +7,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = RavFenShadow
 
 RavFenShadow_FILES = Tweak.mm
-RavFenShadow_FRAMEWORKS = UIKit QuartzCore CoreGraphics Foundation
+RavFenShadow_FRAMEWORKS = UIKit QuartzCore CoreGraphics Foundation WebKit
 RavFenShadow_CFLAGS = -fobjc-arc -Wno-error=deprecated-declarations
 
 include $(THEOS_MAKE_PATH)/tweak.mk
