@@ -1,9 +1,10 @@
-# استهداف معمارية الآيفون الحديثة فقط وتحديد الإصدار تلقائياً
 TARGET = iphone:clang:latest:14.0
 ARCHS = arm64
 
 DEBUG = 1
 FINALPACKAGE = 0
+
+include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = metalbiew
 
