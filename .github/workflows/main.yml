@@ -18,11 +18,10 @@ jobs:
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-      - name: Unzip and Rename Game SDK
+      - name: Unzip Game SDK
         run: |
-          unzip SDK.zip
-          # الكود أدناه يبحث عن المجلد المستخرج أياً كان اسمه ويغيره إلى SDK تلقائياً ليتوافق مع الـ Makefile
-          find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" -exec mv {} SDK \; 2>/dev/null || true
+          # فك الضغط مع تجنب إيقاف السيرفر في حال وجود تحذيرات بسيطة
+          unzip SDK.zip || true
 
       - name: Build
         run: |
