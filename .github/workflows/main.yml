@@ -12,16 +12,17 @@ jobs:
 
       - name: Setup Theos
         run: |
-          git clone --recursive https://github.com/theos/theos.git ~/theos
-          rm -rf ~/theos/sdks
-          git clone https://github.com/theos/sdks.git ~/theos/sdks
-          echo "THEOS=~/theos" >> $GITHUB_ENV
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+          rm -rf $HOME/theos/sdks
+          git clone https://github.com/theos/sdks.git $HOME/theos/sdks
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
 
       - name: Unzip and Rename Game SDK
         run: |
-          unzip "SDK_PUBG_VNG_4.5[1].zip"
-          mv "SDK PUBG VNG 4.5" SDK
+          unzip SDK.zip
+          # الكود أدناه يبحث عن المجلد المستخرج أياً كان اسمه ويغيره إلى SDK تلقائياً ليتوافق مع الـ Makefile
+          find . -maxdepth 1 -type d ! -name "." ! -name ".git" ! -name ".github" -exec mv {} SDK \; 2>/dev/null || true
 
       - name: Build
         run: |
