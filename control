@@ -1,0 +1,6 @@
+Package: com.ravfen.shadow
+Name: RavFen Shadow
+Depends: mobilesubstrate
+Version: 8.0.0
+Architecture: iphoneos-arm64
+Description: PUBG Mobile Tweak with SDK Integration
