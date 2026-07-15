@@ -13,11 +13,15 @@
 #import <math.h>
 #import <sys/sysctl.h>
 
-// ────────────── تضمين ملفات الـ SDK ──────────────
+// ────────────── تضمين ملفات الـ SDK بالترتيب الصحيح ──────────────
 #include "SDK/SHANKS_PUBGM_Basic.hpp"
+#include "SDK/SHANKS_PUBGM_CoreUObject_structs.hpp"
 #include "SDK/SHANKS_PUBGM_CoreUObject_classes.hpp"
+#include "SDK/SHANKS_PUBGM_Engine_structs.hpp"
 #include "SDK/SHANKS_PUBGM_Engine_classes.hpp"
+#include "SDK/SHANKS_PUBGM_ShadowTrackerExtra_structs.hpp"
 #include "SDK/SHANKS_PUBGM_ShadowTrackerExtra_classes.hpp"
+// ──────────────────────────────────────────────────────────────────
 // ──────────────────────────────────────────────────
 
 // ====================================================================
