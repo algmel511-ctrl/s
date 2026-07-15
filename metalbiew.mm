@@ -13,16 +13,31 @@
 #import <math.h>
 #import <sys/sysctl.h>
 
-// ────────────── تضمين ملفات الـ SDK بالترتيب الصحيح ──────────────
+// ────────────── تضمين ملفات الـ SDK بالترتيب الصحيح والكامل ──────────────
 #include "SDK/SHANKS_PUBGM_Basic.hpp"
+
+// 1. الأساسيات (CoreUObject)
 #include "SDK/SHANKS_PUBGM_CoreUObject_structs.hpp"
 #include "SDK/SHANKS_PUBGM_CoreUObject_classes.hpp"
+
+// 2. نظام الإدخال والأزرار (InputCore) - مطلوب لتعريف FKey و ETouchIndex
+#include "SDK/SHANKS_PUBGM_InputCore_structs.hpp"
+#include "SDK/SHANKS_PUBGM_InputCore_classes.hpp"
+
+// 3. نظام الواجهات (Slate & SlateCore) - مطلوب لتعريف FSlateBrush و FInputChord
+#include "SDK/SHANKS_PUBGM_SlateCore_structs.hpp"
+#include "SDK/SHANKS_PUBGM_SlateCore_classes.hpp"
+#include "SDK/SHANKS_PUBGM_Slate_structs.hpp"
+#include "SDK/SHANKS_PUBGM_Slate_classes.hpp"
+
+// 4. كلاسات وهياكل المحرك (Engine)
 #include "SDK/SHANKS_PUBGM_Engine_structs.hpp"
 #include "SDK/SHANKS_PUBGM_Engine_classes.hpp"
+
+// 5. ملفات اللعبة الخاصة (ShadowTrackerExtra)
 #include "SDK/SHANKS_PUBGM_ShadowTrackerExtra_structs.hpp"
 #include "SDK/SHANKS_PUBGM_ShadowTrackerExtra_classes.hpp"
-// ──────────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────
 
 // ====================================================================
 // 📍 الحصول على عنوان بداية تشغيل اللعبة (ASLR)
