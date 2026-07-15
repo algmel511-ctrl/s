@@ -5,22 +5,28 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install ldid (Signing Tool)
         run: |
           brew install ldid
-          
+
       - name: Setup Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
+          git clone https://github.com/theos/sdks.git ~/theos/sdks
           echo "THEOS=~/theos" >> $GITHUB_ENV
           echo "$HOME/theos/bin" >> $GITHUB_PATH
-          
+
+      - name: Unzip and Rename Game SDK
+        run: |
+          unzip "SDK_PUBG_VNG_4.5[1].zip"
+          mv "SDK PUBG VNG 4.5" SDK
+
       - name: Build
         run: |
           make clean
           make
-          
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
