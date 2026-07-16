@@ -20,9 +20,15 @@ jobs:
 
       - name: Unzip Game SDK
         run: |
-          # فك الضغط مع تجنب إيقاف السيرفر في حال وجود تحذيرات بسيطة
-          unzip SDK.zip || true
-
+          # فك الضغط مع فرض الاستبدال تلقائياً (-o) لتجنب التوقف والأسئلة
+          unzip -o SDK.zip || true
+          
+          # فحص احتياطي: لو تم فك الملفات مباشرة بالخارج بدون مجلد، سنقوم بإنشاء مجلد SDK ونقلها إليه
+          if [ ! -d "SDK" ]; then
+            mkdir -p SDK
+            mv *.hpp SDK/ 2>/dev/null || true
+            mv *.h SDK/ 2>/dev/null || true
+          fi
       - name: Build
         run: |
           make clean
