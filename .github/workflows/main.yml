@@ -1,41 +1,75 @@
 name: Build Tweak
-on: [push]
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install ldid (Signing Tool)
-        run: |
-          brew install ldid
+    - name: Install ldid (Signing Tool)
+      run: |
+        brew install ldid
 
-      - name: Setup Theos
-        run: |
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
-          rm -rf $HOME/theos/sdks
-          git clone https://github.com/theos/sdks.git $HOME/theos/sdks
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-          echo "$HOME/theos/bin" >> $GITHUB_PATH
+    - name: Setup Theos
+      run: |
+        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        rm -rf $HOME/theos/sdks
+        git clone https://github.com/theos/sdks.git $HOME/theos/sdks
+        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+        echo "$HOME/theos/bin" >> $GITHUB_PATH
 
-      - name: Unzip Game SDK
-        run: |
-          # فك الضغط مع فرض الاستبدال تلقائياً (-o) لتجنب التوقف والأسئلة
-          unzip -o SDK.zip || true
-          
-          # فحص احتياطي: لو تم فك الملفات مباشرة بالخارج بدون مجلد، سنقوم بإنشاء مجلد SDK ونقلها إليه
-          if [ ! -d "SDK" ]; then
-            mkdir -p SDK
-            mv *.hpp SDK/ 2>/dev/null || true
-            mv *.h SDK/ 2>/dev/null || true
-          fi
-      - name: Build
-        run: |
-          make clean
-          make
+    - name: Unzip and Organize SDK
+      run: |
+        # 1. فك ضغط الملف مع تجاوز أسئلة الاستبدال تلقائياً
+        unzip -o SDK.zip || true
+        
+        # 2. البحث الذكي عن مسار ملف الـ SDK الأساسي
+        FILE_PATH=$(find . -name "SHANKS_PUBGM_Basic.hpp" -print -quit)
+        
+        if [ -z "$FILE_PATH" ]; then
+          echo "⚠️ خطأ كارثي: لم يتم العثور على SHANKS_PUBGM_Basic.hpp داخل الـ zip!"
+          ls -la
+          exit 1
+        fi
+        
+        # تحديد المجلد الفعلي الذي يحتوي على الملف
+        DIR_PATH=$(dirname "$FILE_PATH")
+        echo "📍 تم العثور على ملفات الـ SDK داخل المسار: $DIR_PATH"
+        
+        # 3. تنظيم وتوحيد المسار إلى SDK/
+        if [ "$DIR_PATH" = "./SDK" ]; then
+          echo "✅ المسار مرتب بشكل صحيح تلقائياً!"
+        elif [ "$DIR_PATH" = "." ]; then
+          echo "📦 الملفات مبعثرة بالخارج، سننشئ مجلد SDK وننقلها إليه..."
+          mkdir -p SDK
+          mv *.hpp SDK/ 2>/dev/null || true
+          mv *.h SDK/ 2>/dev/null || true
+        else
+          echo "📦 وجدنا الملفات داخل مجلد فرعي باسم ($DIR_PATH)، سنعيده إلى SDK..."
+          rm -rf SDK
+          mv "$DIR_PATH" SDK
+        fi
+        
+        # تأكيد وجود الملفات في المكان الصحيح قبل البناء
+        echo "--- محتويات مجلد SDK الآن ---"
+        ls -la SDK/
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: RavFenShadowDylib
-          path: .theos/obj/debug/*.dylib
+    - name: Build
+      run: |
+        make clean
+        make
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: RavFenShadowDylib
+        path: .theos/obj/debug/*.dylib
