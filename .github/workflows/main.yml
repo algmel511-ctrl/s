@@ -8,7 +8,10 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest  # استخدم macos-latest لتجنب مشاكل libtinfo نهائياً[reference:2]
+    runs-on: macos-latest
+    env:
+      THEOS: ${{ github.workspace }}/theos   # تعريف THEOS هنا ليصبح متاحاً لكل الخطوات
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -18,20 +21,14 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git $THEOS
           echo "$THEOS/bin" >> $GITHUB_PATH
 
-      - name: Install Dependencies (ldid, etc)
-        run: |
-          brew install ldid dpkg
-
-      # هذه الخطوة لم تعد ضرورية على macOS، لكنني أبقيها كمرجع للحل لو أردت استخدام Ubuntu
-      # - name: Fix libtinfo (Linux only)
-      #   if: runner.os == 'Linux'
-      #   run: sudo apt-get install libtinfo5[reference:3]
+      - name: Install Dependencies
+        run: brew install ldid dpkg
 
       - name: Build Tweak
         run: make
 
       - name: Upload Dylib Artifact
-        uses: actions/upload-artifact@v4  # تم التحديث من v2 إلى v4[reference:4][reference:5]
+        uses: actions/upload-artifact@v4
         with:
           name: OffsetsValidator.dylib
           path: ./*.dylib
