@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-latest  # استخدم macos-latest لتجنب مشاكل libtinfo نهائياً[reference:2]
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -22,11 +22,16 @@ jobs:
         run: |
           brew install ldid dpkg
 
+      # هذه الخطوة لم تعد ضرورية على macOS، لكنني أبقيها كمرجع للحل لو أردت استخدام Ubuntu
+      # - name: Fix libtinfo (Linux only)
+      #   if: runner.os == 'Linux'
+      #   run: sudo apt-get install libtinfo5[reference:3]
+
       - name: Build Tweak
         run: make
 
       - name: Upload Dylib Artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4  # تم التحديث من v2 إلى v4[reference:4][reference:5]
         with:
           name: OffsetsValidator.dylib
           path: ./*.dylib
