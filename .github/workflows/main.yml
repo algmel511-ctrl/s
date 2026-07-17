@@ -1,4 +1,4 @@
-name: Build Tweak
+name: Build Taiwan Offset Validator
 
 on:
   push:
@@ -9,67 +9,39 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      # 1. جلب ملفات المشروع من الـ Repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Install ldid (Signing Tool)
-      run: |
-        brew install ldid
+      # 2. إعداد بيئة نظام Linux للتجميع وتثبيت الأدوات الأساسية
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot build-essential perl clang libssl-dev
 
-    - name: Setup Theos
-      run: |
-        git clone --recursive https://github.com/theos/theos.git $HOME/theos
-        rm -rf $HOME/theos/sdks
-        git clone https://github.com/theos/sdks.git $HOME/theos/sdks
-        echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-        echo "$HOME/theos/bin" >> $GITHUB_PATH
+      # 3. تثبيت بيئة Theos الرسمية لتجميع تويكات iOS
+      - name: Install Theos SDK
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
 
-    - name: Unzip and Organize SDK
-      run: |
-        # 1. فك ضغط الملف مع تجاوز أسئلة الاستبدال تلقائياً
-        unzip -o SDK.zip || true
-        
-        # 2. البحث الذكي عن مسار ملف الـ SDK الأساسي
-        FILE_PATH=$(find . -name "SHANKS_PUBGM_Basic.hpp" -print -quit)
-        
-        if [ -z "$FILE_PATH" ]; then
-          echo "⚠️ خطأ كارثي: لم يتم العثور على SHANKS_PUBGM_Basic.hpp داخل الـ zip!"
-          ls -la
-          exit 1
-        fi
-        
-        # تحديد المجلد الفعلي الذي يحتوي على الملف
-        DIR_PATH=$(dirname "$FILE_PATH")
-        echo "📍 تم العثور على ملفات الـ SDK داخل المسار: $DIR_PATH"
-        
-        # 3. تنظيم وتوحيد المسار إلى SDK/
-        if [ "$DIR_PATH" = "./SDK" ]; then
-          echo "✅ المسار مرتب بشكل صحيح تلقائياً!"
-        elif [ "$DIR_PATH" = "." ]; then
-          echo "📦 الملفات مبعثرة بالخارج، سننشئ مجلد SDK وننقلها إليه..."
-          mkdir -p SDK
-          mv *.hpp SDK/ 2>/dev/null || true
-          mv *.h SDK/ 2>/dev/null || true
-        else
-          echo "📦 وجدنا الملفات داخل مجلد فرعي باسم ($DIR_PATH)، سنعيده إلى SDK..."
-          rm -rf SDK
-          mv "$DIR_PATH" SDK
-        fi
-        
-        # تأكيد وجود الملفات في المكان الصحيح قبل البناء
-        echo "--- محتويات مجلد SDK الآن ---"
-        ls -la SDK/
+      # 4. جلب الـ SDK الخاص بـ iOS (تحديداً إصدار مناسب لتجميع كود arm64)
+      - name: Checkout iOS SDK
+        run: |
+          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
+          
+      # 5. تشغيل أمر التجميع (Compilation) لإنتاج حزمة الـ Deb
+      - name: Compile Tweak Package
+        run: |
+          export THEOS=$GITHUB_WORKSPACE/theos
+          make package FINALPACKAGE=1
 
-    - name: Build
-      run: |
-        make clean
-        make
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: RavFenShadowDylib
-        path: .theos/obj/debug/*.dylib
+      # 6. رفع ملف الـ .deb الناتج لتستطيع تحميله مباشرة من الـ Artifacts
+      - name: Upload Compiled Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TaiwanValidator-Package
+          path: packages/*.deb
