@@ -10,11 +10,14 @@ jobs:
   build:
     runs-on: macos-latest
     env:
-      THEOS: ${{ github.workspace }}/theos   # تعريف THEOS هنا ليصبح متاحاً لكل الخطوات
+      THEOS: ${{ github.workspace }}/theos
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: List files for debugging
+        run: ls -la   # ← ستظهر لك الملفات الموجودة
 
       - name: Install Theos
         run: |
