@@ -1,17 +1,23 @@
-TARGET = iphone:clang:latest:14.0
+# اسم التويك الخاص بك
+TWEAK_NAME = TaiwanOffsetValidator
+
+# ملفات السورس الفردية لترجمتها (تأكد من تسمية ملف الكود الأساسي بـ Tweak.xm أو تعديل الاسم هنا)
+TaiwanOffsetValidator_FILES = Tweak.xm
+
+# المعماريات المستهدفة (ببجي تعمل على 64-bit فقط)
 ARCHS = arm64
 
-DEBUG = 1
-FINALPACKAGE = 0
+# تحديد الجيلبريك المستهدف (Rootless أو Rootful)
+THEOS_PACKAGE_SCHEME = rootless
+
+# المكتبات البرمجية المطلوبة من النواة للتعامل مع الذاكرة والشاشة
+TaiwanOffsetValidator_FRAMEWORKS = UIKit Foundation CoreGraphics
+
+# خيارات المترجم (تفعيل التوافق مع معايير C++17 لتشغيل الـ Vector والمصفوفات بسلاسة)
+TaiwanOffsetValidator_CFLAGS = -fobjc-arc -std=c++17
 
 include $(THEOS)/makefiles/common.mk
-
-TWEAK_NAME = metalbiew
-
-# دمج ملف كودك مع جميع ملفات الـ functions الخاصة بالـ SDK (سواء بالمسار الفرعي أو الرئيسي)
-metalbiew_FILES = metalbiew.mm $(wildcard SDK/SDK/*.cpp) $(wildcard SDK/*.cpp)
-
-# توجيه الكومبيلر للبحث داخل المجلدات الفرعية وتعطيل الأخطاء الصارمة الخاصة بالـ SDK
-metalbiew_CFLAGS = -fobjc-arc -I. -I./SDK -I./SDK/SDK -Wno-error -Wno-return-stack-address
-
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+after-install::
+	install.exec "killall -9 ShadowTrackerExtra"
