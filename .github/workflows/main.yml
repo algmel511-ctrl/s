@@ -12,23 +12,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. جلب ملفات مشروعك من المستودع (مهم جداً عشان السيرفر يشوف ملفاتك)
+      # 1. جلب ملفات مشروعك من المستودع
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. أكشن جاهز يحمل الـ Theos والـ Toolchain والـ SDK تلقائياً ويحل مشكلة Clang
-      - name: Setup Theos Environment
-        uses: beerpiss/theos-action@v1
-        with:
-          theos-dir: ${{ github.workspace }}/theos
+      # 2. تثبيت الأدوات الأساسية لنظام الـ Linux
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot build-essential perl clang libssl-dev xz-utils curl
 
-      # 3. تشغيل أمر التجميع لإنتاج حزمة الـ Deb
+      # 3. تحميل الـ Theos الأساسي يدوياً
+      - name: Install Theos
+        run: |
+          rm -rf $GITHUB_WORKSPACE/theos
+          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+
+      # 4. تحميل المترجم الرسمي (Toolchain) وفك ضغطه بأمان
+      - name: Install iOS Toolchain
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
+          curl -LO https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
+          tar -xf linux-ios-arm64e-clang-toolchain.tar.lzma -C $GITHUB_WORKSPACE/theos/toolchain/linux/iphone --strip-components=1
+          rm linux-ios-arm64e-clang-toolchain.tar.lzma
+
+      # 5. جلب الـ SDKs الخاصة بالـ iOS
+      - name: Checkout iOS SDKs
+        run: |
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
+          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
+
+      # 6. التجميع النهائي وإنتاج الـ Deb
       - name: Build Tweak Package
         run: |
           export THEOS=$GITHUB_WORKSPACE/theos
           make package FINALPACKAGE=1
 
-      # 4. رفع الملف الناتج عشان تحمله
+      # 7. رفع الملف الناتج للتحميل من الـ Artifacts
       - name: Upload Compiled Package
         uses: actions/upload-artifact@v4
         with:
