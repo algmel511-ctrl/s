@@ -1,57 +1,32 @@
-name: Build Taiwan Offset Validator
+name: Build iOS Dylib (Theos)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
+    runs-on: macos-latest
     steps:
-      # 1. جلب ملفات مشروعك من المستودع
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
-      # 2. تثبيت الأدوات الأساسية لنظام الـ Linux
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fakeroot build-essential perl clang libssl-dev xz-utils curl
-
-      # 3. تحميل الـ Theos الأساسي يدوياً
       - name: Install Theos
         run: |
-          rm -rf $GITHUB_WORKSPACE/theos
-          git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          echo "$THEOS/bin" >> $GITHUB_PATH
 
-      # 4. تحميل المترجم الرسمي (Toolchain) وفك ضغطه بأمان
-      - name: Install iOS Toolchain
+      - name: Install Dependencies (ldid, etc)
         run: |
-          mkdir -p $GITHUB_WORKSPACE/theos/toolchain/linux/iphone
-          curl -LO https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma
-          tar -xf linux-ios-arm64e-clang-toolchain.tar.lzma -C $GITHUB_WORKSPACE/theos/toolchain/linux/iphone --strip-components=1
-          rm linux-ios-arm64e-clang-toolchain.tar.lzma
+          brew install ldid dpkg
 
-      # 5. جلب الـ SDKs الخاصة بالـ iOS
-      - name: Checkout iOS SDKs
-        run: |
-          rm -rf $GITHUB_WORKSPACE/theos/sdks
-          git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
+      - name: Build Tweak
+        run: make
 
-      # 6. التجميع النهائي وإنتاج الـ Deb
-      - name: Build Tweak Package
-        run: |
-          export THEOS=$GITHUB_WORKSPACE/theos
-          make package FINALPACKAGE=1
-
-      # 7. رفع الملف الناتج للتحميل من الـ Artifacts
-      - name: Upload Compiled Package
-        uses: actions/upload-artifact@v4
+      - name: Upload Dylib Artifact
+        uses: actions/upload-artifact@v2
         with:
-          name: TaiwanValidator-Package
-          path: packages/*.deb
+          name: OffsetsValidator.dylib
+          path: ./*.dylib
