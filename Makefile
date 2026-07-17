@@ -1,19 +1,19 @@
 # اسم التويك الخاص بك
 TWEAK_NAME = TaiwanOffsetValidator
 
-# ملفات السورس الفردية لترجمتها (تأكد من تسمية ملف الكود الأساسي بـ Tweak.xm أو تعديل الاسم هنا)
-TaiwanOffsetValidator_FILES = Tweak.xm
+# ملف السورس الفعلي الموجود في مجلدك بناءً على الـ log الخاص بك
+TaiwanOffsetValidator_FILES = metalbiew.mm
 
-# المعماريات المستهدفة (ببجي تعمل على 64-bit فقط)
+# المعماريات المستهدفة
 ARCHS = arm64
 
-# تحديد الجيلبريك المستهدف (Rootless أو Rootful)
+# تحديد الجيلبريك المستهدف (Rootless)
 THEOS_PACKAGE_SCHEME = rootless
 
-# المكتبات البرمجية المطلوبة من النواة للتعامل مع الذاكرة والشاشة
+# المكتبات البرمجية المطلوبة
 TaiwanOffsetValidator_FRAMEWORKS = UIKit Foundation CoreGraphics
 
-# خيارات المترجم (تفعيل التوافق مع معايير C++17 لتشغيل الـ Vector والمصفوفات بسلاسة)
+# خيارات المترجم (تفعيل التوافق مع C++17)
 TaiwanOffsetValidator_CFLAGS = -fobjc-arc -std=c++17
 
 include $(THEOS)/makefiles/common.mk
