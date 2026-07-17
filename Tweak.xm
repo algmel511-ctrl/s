@@ -2,6 +2,7 @@
 //  OffsetsValidator.xm
 //  للايفون - دايلب محقون
 //  يتحقق من صحة الأوفستات ويعرض النتيجة
+//  متوافق مع iOS 7.0 فما فوق
 // ============================================
 
 #import <UIKit/UIKit.h>
@@ -37,18 +38,19 @@ static OffsetEntry gOffsets[] = {
 static const int gOffsetCount = sizeof(gOffsets) / sizeof(OffsetEntry);
 
 // ============================================
-// 2. دالة آمنة لقراءة الذاكرة
+// 2. دالة آمنة لقراءة الذاكرة (متوافقة مع iOS 7)
 // ============================================
 BOOL isAddressReadable(uintptr_t addr) {
     if (addr == 0) return NO;
     vm_size_t size = sizeof(uintptr_t);
     uintptr_t buffer = 0;
     vm_size_t outSize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                              (mach_vm_address_t)addr,
-                                              size,
-                                              (vm_address_t)&buffer,
-                                              &outSize);
+    // استخدم vm_read_overwrite بدلاً من mach_vm_read_overwrite
+    kern_return_t kr = vm_read_overwrite(mach_task_self(),
+                                         (vm_address_t)addr,
+                                         size,
+                                         (vm_address_t)&buffer,
+                                         &outSize);
     return (kr == KERN_SUCCESS && outSize == size);
 }
 
@@ -111,8 +113,9 @@ BOOL isAddressReadable(uintptr_t addr) {
 }
 
 - (void)closeTapped {
+    // إخفاء النافذة بدلاً من تعيينها إلى nil
     self.view.window.hidden = YES;
-    self.view.window = nil;
+    // لا نحتاج لتعيين self.view.window = nil لأنها للقراءة فقط
 }
 
 @end
@@ -139,19 +142,8 @@ void showValidationResult() {
     }
     
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindowScene *scene = nil;
-        if (@available(iOS 13.0, *)) {
-            for (UIWindowScene *s in [UIApplication sharedApplication].connectedScenes) {
-                if (s.activationState == UISceneActivationStateForegroundActive) {
-                    scene = s;
-                    break;
-                }
-            }
-        }
-        overlayWindow = [[UIWindow alloc] initWithWindowScene:scene];
-        if (!overlayWindow) {
-            overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        }
+        // إنشاء النافذة بطريقة متوافقة مع iOS 7 (بدون UIWindowScene)
+        overlayWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
         overlayWindow.windowLevel = UIWindowLevelAlert + 1000;
         overlayWindow.backgroundColor = [UIColor clearColor];
         
