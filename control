@@ -1,6 +1,9 @@
-Package: com.ravfen.shadow
-Name: RavFen Shadow
-Depends: mobilesubstrate
-Version: 8.0.0
-Architecture: iphoneos-arm64
-Description: PUBG Mobile Tweak with SDK Integration
+Package: com.yourname.offsetvalidator
+Name: Offsets Validator
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: أداة للتحقق من صحة الأوفستات وعرض علامة خضراء/حمراء فورية.
+Maintainer: YourName <your@email.com>
+Author: YourName
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 11.0)
