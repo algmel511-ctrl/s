@@ -16,30 +16,32 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. إعداد بيئة نظام Linux للتجميع وتثبيت الأدوات الأساسية
+      # 2. إعداد بيئة نظام Linux وتثبيت الأدوات الأساسية
       - name: Setup Build Environment
         run: |
           sudo apt-get update
           sudo apt-get install -y fakeroot build-essential perl clang libssl-dev
 
-      # 3. تثبيت بيئة Theos الرسمية لتجميع تويكات iOS
+      # 3. تثبيت بيئة Theos وتجنب خطأ المجلد الموجود مسبقاً
       - name: Install Theos SDK
         run: |
+          rm -rf $GITHUB_WORKSPACE/theos
           git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
           echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
 
-      # 4. جلب الـ SDK الخاص بـ iOS (تحديداً إصدار مناسب لتجميع كود arm64)
+      # 4. جلب الـ SDK الخاص بـ iOS مع مسح أي مخلفات سابقة
       - name: Checkout iOS SDK
         run: |
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
           git clone https://github.com/theos/sdks.git $GITHUB_WORKSPACE/theos/sdks
           
-      # 5. تشغيل أمر التجميع (Compilation) لإنتاج حزمة الـ Deb
+      # 5. تشغيل أمر التجميع لإنتاج حزمة الـ Deb مباشرة
       - name: Compile Tweak Package
         run: |
           export THEOS=$GITHUB_WORKSPACE/theos
           make package FINALPACKAGE=1
 
-      # 6. رفع ملف الـ .deb الناتج لتستطيع تحميله مباشرة من الـ Artifacts
+      # 6. رفع ملف الـ .deb الناتج للتحميل
       - name: Upload Compiled Artifact
         uses: actions/upload-artifact@v4
         with:
