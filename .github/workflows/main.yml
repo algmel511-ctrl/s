@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: List files for debugging
-        run: ls -la   # ← ستظهر لك الملفات الموجودة
+        run: ls -la
 
       - name: Install Theos
         run: |
@@ -34,4 +34,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OffsetsValidator.dylib
-          path: ./*.dylib
+          path: ./.theos/obj/**/OffsetsValidator.dylib   # ← المسار الصحيح هنا
