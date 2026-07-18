@@ -16,9 +16,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: List files for debugging
-        run: ls -la
-
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git $THEOS
@@ -30,8 +27,24 @@ jobs:
       - name: Build Tweak
         run: make
 
+      # 🔥 الخطوة السحرية: تبحث عن أي ملف .dylib في كل المجلدات
+      - name: Find and upload dylib
+        run: |
+          DYLIB_PATH=$(find . -name "*.dylib" -type f | head -n 1)
+          echo "✅ Found dylib at: $DYLIB_PATH"
+          
+          # إذا كان الملف موجود، نرفعه
+          if [ -f "$DYLIB_PATH" ]; then
+            mkdir -p output
+            cp "$DYLIB_PATH" output/OffsetsValidator.dylib
+            echo "✅ Copied to output/OffsetsValidator.dylib"
+          else
+            echo "❌ No dylib found!"
+            exit 1
+          fi
+
       - name: Upload Dylib Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OffsetsValidator.dylib
-          path: ./.theos/obj/**/OffsetsValidator.dylib   # ← المسار الصحيح هنا
+          path: output/OffsetsValidator.dylib
