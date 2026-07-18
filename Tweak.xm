@@ -66,7 +66,7 @@ static BOOL g_InGame = NO;
 // 🛡️ Anti‑detection helpers
 // ====================================================================
 static void RandomDelay(void) {
-    usleep(arc4random() % 1500 + 500); // 0.5–2 ms
+    usleep(arc4random() % 1500 + 500);
 }
 
 static void RandomThreadName(void) {
@@ -128,7 +128,7 @@ static void GameLoop(void) {
     // 2. Get Actor Array
     uint64_t ActorArrayPtr = *(uint64_t*)(base + ADDR_ACTORARRAY);
     if (!ActorArrayPtr) return;
-    int32_t actorCount = *(int32_t*)(ActorArrayPtr + 8); // TArray::Num()
+    int32_t actorCount = *(int32_t*)(ActorArrayPtr + 8);
     if (actorCount <= 0 || actorCount > 5000) return;
 
     g_InGame = (actorCount > 120);
@@ -160,8 +160,8 @@ static void GameLoop(void) {
     // ── Get local Pawn ───────────────────────────────────────
     uint64_t LocalPawn = 0;
     if (g_LocalPC) {
-        LocalPawn = *(uint64_t*)(g_LocalPC + 0x528); // AcknowledgedPawn
-        if (!LocalPawn) LocalPawn = *(uint64_t*)(g_LocalPC + 0x518); // Character
+        LocalPawn = *(uint64_t*)(g_LocalPC + 0x528);
+        if (!LocalPawn) LocalPawn = *(uint64_t*)(g_LocalPC + 0x518);
     }
     if (LocalPawn) {
         uint64_t Root = *(uint64_t*)(LocalPawn + OFFSET_ROOTCOMP);
@@ -242,7 +242,6 @@ static void GameLoop(void) {
             else factor = 1.0f;
             factor = fmaxf(0.01f, fminf(1.0f, factor));
 
-            // Read current ControlRotation (offset 0x4E0)
             float curPitch = *(float*)(g_LocalPC + 0x4E0);
             float curYaw   = *(float*)(g_LocalPC + 0x4E4);
             float dYaw   = yaw   - curYaw;
@@ -336,169 +335,193 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 UI – Floating button & menu
+// 📱 Menu Class (Fixed)
 // ====================================================================
 @interface RavMenuView : UIView
+- (void)show;
+- (void)hide;
 @end
 
-static UIView* menuView = nil;
-static BOOL menuVisible = NO;
+@implementation RavMenuView {
+    UIView* _contentView;
+    int _currentTab;
+    UISwitch* _enableSwitch;
+    UISlider* _speedSlider;
+    UISegmentedControl* _targetSegment;
+    UISwitch* _espSwitch, *_boxSwitch, *_lineSwitch;
+    UILabel* _speedWarn, *_headWarn;
+}
 
-static void ShowMenu(void) {
-    if (menuVisible) return;
-    UIWindow* keyWindow = [UIApplication sharedApplication].keyWindow;
-    if (!keyWindow) return;
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor colorWithWhite:0 alpha:0.85];
+        [self buildContent];
+        _currentTab = 0;
+        [self switchToTab:0];
+    }
+    return self;
+}
 
-    menuView = [[UIView alloc] initWithFrame:keyWindow.bounds];
-    menuView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.85];
-    [keyWindow addSubview:menuView];
-    menuVisible = YES;
-
+- (void)buildContent {
     // Beta warning
-    UILabel* beta = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, menuView.bounds.size.width-40, 60)];
+    UILabel* beta = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, self.bounds.size.width-40, 60)];
     beta.text = @"⚠️ This is a beta version‼️\n⚠️ هذه النسخة تجريبية ‼️";
     beta.textColor = [UIColor redColor];
     beta.numberOfLines = 2;
     beta.textAlignment = NSTextAlignmentCenter;
-    [menuView addSubview:beta];
+    [self addSubview:beta];
 
     // Close button
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(menuView.bounds.size.width-50, 30, 40, 40);
-    [close setTitle:@"X" forState:UIControlStateNormal];
+    close.frame = CGRectMake(self.bounds.size.width-50, 30, 40, 40);
+    [close setTitle:@"✕" forState:UIControlStateNormal];
     close.tintColor = [UIColor whiteColor];
-    [close addTarget:^{ HideMenu(); } forControlEvents:UIControlEventTouchUpInside];
-    [menuView addSubview:close];
+    [close addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
+    [self addSubview:close];
 
-    // Tab container
-    UIScrollView* tabs = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 160, menuView.bounds.size.width, 50)];
-    tabs.contentSize = CGSizeMake(menuView.bounds.size.width, 50);
-    [menuView addSubview:tabs];
+    // Tab bar
+    UIScrollView* tabs = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 160, self.bounds.size.width, 50)];
+    tabs.contentSize = CGSizeMake(self.bounds.size.width, 50);
+    [self addSubview:tabs];
 
     NSArray* tabNames = @[@"Aimbot", @"Player", @"Memory"];
     for (int i=0; i<3; i++) {
         UIButton* btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        btn.frame = CGRectMake(i*menuView.bounds.size.width/3, 0, menuView.bounds.size.width/3, 50);
+        btn.frame = CGRectMake(i*self.bounds.size.width/3, 0, self.bounds.size.width/3, 50);
         [btn setTitle:tabNames[i] forState:UIControlStateNormal];
         [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         btn.tag = i;
-        [btn addTarget:^{ [self tabTapped:i]; } forControlEvents:UIControlEventTouchUpInside];
+        [btn addTarget:self action:@selector(tabButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [tabs addSubview:btn];
     }
-    [self tabTapped:0];
+
+    _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 220, self.bounds.size.width, self.bounds.size.height-220)];
+    [self addSubview:_contentView];
 }
 
-static void HideMenu(void) {
-    [menuView removeFromSuperview];
-    menuView = nil;
-    menuVisible = NO;
+- (void)tabButtonTapped:(UIButton*)sender {
+    [self switchToTab:(int)sender.tag];
 }
 
-// Aimbot page
-- (void)buildAimbotPage {
-    UIView* page = [[UIView alloc] initWithFrame:CGRectMake(0, 220, menuView.bounds.size.width, menuView.bounds.size.height-220)];
-    [menuView addSubview:page];
-
-    UISwitch* enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
-    [enableSwitch addTarget:^{ gConfig.aimbotEnabled = enableSwitch.isOn; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:enableSwitch];
-    UILabel* enableLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, 200, 30)];
-    enableLabel.text = @"Enable Aimbot\nتفعيل الايم بوت";
-    enableLabel.numberOfLines = 2;
-    enableLabel.textColor = [UIColor whiteColor];
-    [page addSubview:enableLabel];
-
-    UISlider* speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 80, page.bounds.size.width-40, 30)];
-    speedSlider.minimumValue = 50; speedSlider.maximumValue = 250; speedSlider.value = 120;
-    [speedSlider addTarget:^{ gConfig.aimbotSpeed = speedSlider.value; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:speedSlider];
-    UILabel* speedLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 60, 200, 20)];
-    speedLabel.text = @"Aimbot Speed\nسرعة الايم بوت";
-    speedLabel.numberOfLines = 2;
-    speedLabel.textColor = [UIColor whiteColor];
-    [page addSubview:speedLabel];
-
-    UILabel* warnLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, page.bounds.size.width-40, 40)];
-    warnLabel.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    warnLabel.numberOfLines = 2;
-    warnLabel.textColor = [UIColor redColor];
-    warnLabel.hidden = YES;
-    [page addSubview:warnLabel];
-
-    UISegmentedControl* targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head\nراس", @"Body\nجسم", @"Random\nعشوائي"]];
-    targetSegment.frame = CGRectMake(20, 160, page.bounds.size.width-40, 60);
-    [targetSegment addTarget:^{ gConfig.aimTarget = (AimTarget)targetSegment.selectedSegmentIndex; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:targetSegment];
-
-    UILabel* headWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 230, page.bounds.size.width-40, 40)];
-    headWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    headWarn.numberOfLines = 2;
-    headWarn.textColor = [UIColor redColor];
-    headWarn.hidden = YES;
-    [page addSubview:headWarn];
-
-    [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:YES block:^(NSTimer* t){
-        warnLabel.hidden = (speedSlider.value <= 115);
-        headWarn.hidden = (targetSegment.selectedSegmentIndex != 0);
-    }];
-}
-
-// Player page
-- (void)buildPlayerPage {
-    UIView* page = [[UIView alloc] initWithFrame:CGRectMake(0, 220, menuView.bounds.size.width, menuView.bounds.size.height-220)];
-    [menuView addSubview:page];
-
-    UISwitch* espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
-    [espSwitch addTarget:^{ gConfig.espEnabled = espSwitch.isOn; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:espSwitch];
-    UILabel* espLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, 200, 30)];
-    espLabel.text = @"Enable ESP\nتفعيل الـESP";
-    espLabel.numberOfLines = 2;
-    espLabel.textColor = [UIColor whiteColor];
-    [page addSubview:espLabel];
-
-    UISwitch* boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 70, 50, 30)];
-    [boxSwitch addTarget:^{ gConfig.espBoxes = boxSwitch.isOn; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:boxSwitch];
-    UILabel* boxLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 70, 200, 30)];
-    boxLabel.text = @"Boxes\nمربعات";
-    boxLabel.numberOfLines = 2;
-    boxLabel.textColor = [UIColor whiteColor];
-    [page addSubview:boxLabel];
-
-    UISwitch* lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 120, 50, 30)];
-    [lineSwitch addTarget:^{ gConfig.espLines = lineSwitch.isOn; } forControlEvents:UIControlEventValueChanged];
-    [page addSubview:lineSwitch];
-    UILabel* lineLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 120, 200, 30)];
-    lineLabel.text = @"Lines\nخطوط";
-    lineLabel.numberOfLines = 2;
-    lineLabel.textColor = [UIColor whiteColor];
-    [page addSubview:lineLabel];
-}
-
-// Memory page
-- (void)buildMemoryPage {
-    UIView* page = [[UIView alloc] initWithFrame:CGRectMake(0, 220, menuView.bounds.size.width, menuView.bounds.size.height-220)];
-    [menuView addSubview:page];
-    UILabel* soonLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, page.bounds.size.width, page.bounds.size.height)];
-    soonLabel.text = @"Soon 🔜\nقريبا";
-    soonLabel.numberOfLines = 2;
-    soonLabel.textColor = [UIColor whiteColor];
-    soonLabel.textAlignment = NSTextAlignmentCenter;
-    soonLabel.font = [UIFont boldSystemFontOfSize:32];
-    [page addSubview:soonLabel];
-}
-
-static int currentTab = 0;
-- (void)tabTapped:(int)index {
-    currentTab = index;
-    for (UIView* v in menuView.subviews) {
-        if (v.frame.origin.y >= 220) [v removeFromSuperview];
-    }
+- (void)switchToTab:(int)index {
+    _currentTab = index;
+    for (UIView* v in _contentView.subviews) [v removeFromSuperview];
     if (index == 0) [self buildAimbotPage];
     else if (index == 1) [self buildPlayerPage];
     else [self buildMemoryPage];
 }
+
+- (void)buildAimbotPage {
+    UIView* page = [[UIView alloc] initWithFrame:_contentView.bounds];
+    [_contentView addSubview:page];
+
+    _enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
+    [_enableSwitch addTarget:self action:@selector(toggleAimbot) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_enableSwitch];
+    UILabel* enableLabel = [self labelWithText:@"Enable Aimbot\nتفعيل الايم بوت" frame:CGRectMake(20, 20, 200, 30)];
+    [page addSubview:enableLabel];
+
+    _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 80, page.bounds.size.width-40, 30)];
+    _speedSlider.minimumValue = 50; _speedSlider.maximumValue = 250; _speedSlider.value = 120;
+    [_speedSlider addTarget:self action:@selector(speedChanged) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_speedSlider];
+    UILabel* speedLabel = [self labelWithText:@"Aimbot Speed\nسرعة الايم بوت" frame:CGRectMake(20, 60, 200, 20)];
+    [page addSubview:speedLabel];
+
+    _speedWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, page.bounds.size.width-40, 40)];
+    _speedWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
+    _speedWarn.numberOfLines = 2;
+    _speedWarn.textColor = [UIColor redColor];
+    _speedWarn.hidden = YES;
+    [page addSubview:_speedWarn];
+
+    _targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head\nراس", @"Body\nجسم", @"Random\nعشوائي"]];
+    _targetSegment.frame = CGRectMake(20, 160, page.bounds.size.width-40, 60);
+    [_targetSegment addTarget:self action:@selector(targetChanged) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_targetSegment];
+
+    _headWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 230, page.bounds.size.width-40, 40)];
+    _headWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
+    _headWarn.numberOfLines = 2;
+    _headWarn.textColor = [UIColor redColor];
+    _headWarn.hidden = YES;
+    [page addSubview:_headWarn];
+
+    [self updateWarnings];
+}
+
+- (void)buildPlayerPage {
+    UIView* page = [[UIView alloc] initWithFrame:_contentView.bounds];
+    [_contentView addSubview:page];
+
+    _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
+    [_espSwitch addTarget:self action:@selector(toggleESP) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_espSwitch];
+    [page addSubview:[self labelWithText:@"Enable ESP\nتفعيل الـESP" frame:CGRectMake(20, 20, 200, 30)]];
+
+    _boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 70, 50, 30)];
+    [_boxSwitch addTarget:self action:@selector(toggleBoxes) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_boxSwitch];
+    [page addSubview:[self labelWithText:@"Boxes\nمربعات" frame:CGRectMake(20, 70, 200, 30)]];
+
+    _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 120, 50, 30)];
+    [_lineSwitch addTarget:self action:@selector(toggleLines) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_lineSwitch];
+    [page addSubview:[self labelWithText:@"Lines\nخطوط" frame:CGRectMake(20, 120, 200, 30)]];
+}
+
+- (void)buildMemoryPage {
+    UILabel* soon = [[UILabel alloc] initWithFrame:_contentView.bounds];
+    soon.text = @"Soon 🔜\nقريبا";
+    soon.numberOfLines = 2;
+    soon.textColor = [UIColor whiteColor];
+    soon.textAlignment = NSTextAlignmentCenter;
+    soon.font = [UIFont boldSystemFontOfSize:32];
+    [_contentView addSubview:soon];
+}
+
+- (UILabel*)labelWithText:(NSString*)text frame:(CGRect)frame {
+    UILabel* l = [[UILabel alloc] initWithFrame:frame];
+    l.text = text;
+    l.numberOfLines = 2;
+    l.textColor = [UIColor whiteColor];
+    l.font = [UIFont systemFontOfSize:14];
+    return l;
+}
+
+- (void)toggleAimbot { gConfig.aimbotEnabled = _enableSwitch.isOn; }
+- (void)speedChanged {
+    gConfig.aimbotSpeed = _speedSlider.value;
+    [self updateWarnings];
+}
+- (void)targetChanged {
+    gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex;
+    [self updateWarnings];
+}
+- (void)updateWarnings {
+    _speedWarn.hidden = (_speedSlider.value <= 115);
+    _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0);
+}
+
+- (void)toggleESP { gConfig.espEnabled = _espSwitch.isOn; }
+- (void)toggleBoxes { gConfig.espBoxes = _boxSwitch.isOn; }
+- (void)toggleLines { gConfig.espLines = _lineSwitch.isOn; }
+
+- (void)show {
+    self.alpha = 0;
+    UIWindow* keyWindow = [UIApplication sharedApplication].keyWindow;
+    if (!keyWindow) return;
+    [keyWindow addSubview:self];
+    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 1; }];
+}
+
+- (void)hide {
+    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; } completion:^(BOOL finished) {
+        [self removeFromSuperview];
+    }];
+}
+
 @end
 
 // ====================================================================
@@ -510,19 +533,27 @@ static void Init(void) {
     RandomThreadName();
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Floating button
         UIButton* floatBtn = [UIButton buttonWithType:UIButtonTypeSystem];
         floatBtn.frame = CGRectMake([UIScreen mainScreen].bounds.size.width-60, 200, 50, 50);
         floatBtn.backgroundColor = [UIColor blackColor];
         floatBtn.layer.cornerRadius = 25;
-        [floatBtn addTarget:^{ ShowMenu(); } forControlEvents:UIControlEventTouchUpInside];
+        [floatBtn addTarget:^{
+            static RavMenuView* menu = nil;
+            if (!menu) {
+                menu = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            }
+            [menu show];
+        } forControlEvents:UIControlEventTouchUpInside];
         [[UIApplication sharedApplication].keyWindow addSubview:floatBtn];
     });
 
+    // Game loop
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         while (YES) {
             @autoreleasepool {
                 GameLoop();
-                usleep(25000 + arc4random() % 10000); // 25-35 ms
+                usleep(25000 + arc4random() % 10000);
             }
         }
     });
