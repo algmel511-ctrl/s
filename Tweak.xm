@@ -649,9 +649,11 @@ static void GameLoop(void) {
     if (!_menuVisible) return;
     __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.3 animations:^{
-        weakSelf->_menuView.alpha = 0;
+        // FIX #2: نحول weakSelf لـ strong أولاً قبل استخدامه في كلا الـ blocks
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_menuView.alpha = 0;
     } completion:^(BOOL finished) {
-        // FIX #2: نحول weakSelf لـ strong أولاً قبل استخدامه
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf->_menuView removeFromSuperview];
