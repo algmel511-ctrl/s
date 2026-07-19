@@ -46,10 +46,11 @@ static pthread_mutex_t g_Mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef enum { Target_Head = 0, Target_Body = 1, Target_Random = 2 } AimTarget;
 
 typedef struct {
-    volatile BOOL   aimbotEnabled;
-    volatile float  aimbotSpeed;
+    volatile BOOL      aimbotEnabled;
+    volatile float     aimbotSpeed;
     volatile AimTarget aimTarget;
-    volatile BOOL   espEnabled, espLines, espBoxes;
+    volatile BOOL      espEnabled, espLines, espBoxes;
+    volatile float     espDistance;   // FIX: added missing field (was causing error at line 199)
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -196,7 +197,7 @@ static void GameLoop(void) {
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
     pthread_mutex_lock(&g_Mutex);
-    maxDist = gConfig.espDistance ?: 500.0f;
+    maxDist = gConfig.espDistance ?: 500.0f;   // FIX: espDistance now exists in RavConfig
     pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
@@ -627,11 +628,15 @@ static void GameLoop(void) {
     if (!_menuVisible) return;
     __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.3 animations:^{
-        _menuView.alpha = 0;
+        // FIX: use weakSelf only for removeFromSuperview (method call is safe on nil)
+        weakSelf->_menuView.alpha = 0;
     } completion:^(BOOL finished) {
-        [weakSelf->_menuView removeFromSuperview];
-        weakSelf->_menuView = nil;
-        weakSelf->_menuVisible = NO;
+        // FIX: assign weakSelf to a strong local variable before accessing ivars
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf->_menuView removeFromSuperview];
+        strongSelf->_menuView = nil;
+        strongSelf->_menuVisible = NO;
     }];
 }
 @end
