@@ -80,6 +80,7 @@ typedef struct {
     volatile float  aimbotSpeed;
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
+    volatile float  espDistance;   // FIX #1: أضفنا الحقل المفقود
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -648,11 +649,14 @@ static void GameLoop(void) {
     if (!_menuVisible) return;
     __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.3 animations:^{
-        _menuView.alpha = 0;
+        weakSelf->_menuView.alpha = 0;
     } completion:^(BOOL finished) {
-        [weakSelf->_menuView removeFromSuperview];
-        weakSelf->_menuView = nil; // تنظيف كامل
-        weakSelf->_menuVisible = NO;
+        // FIX #2: نحول weakSelf لـ strong أولاً قبل استخدامه
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf->_menuView removeFromSuperview];
+        strongSelf->_menuView = nil; // تنظيف كامل
+        strongSelf->_menuVisible = NO;
     }];
 }
 @end
