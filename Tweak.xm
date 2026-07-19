@@ -48,6 +48,7 @@ typedef struct {
     volatile float  aimbotSpeed;
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
+    volatile float  espDistance;  // ✅ FIX: added missing field
 } RavConfig;
 
 static RavConfig gConfig = {0};
