@@ -49,6 +49,7 @@ typedef struct {
     volatile float  aimbotSpeed;          // 50–250
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
+    volatile float  espDistance;          // FIX 1: أضفنا espDistance للـ struct
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -177,7 +178,7 @@ static void GameLoop(void) {
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
     pthread_mutex_lock(&g_Mutex);
-    maxDist = gConfig.espDistance ? gConfig.espDistance : 500.0f;
+    maxDist = gConfig.espDistance > 0 ? gConfig.espDistance : 500.0f;
     pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
@@ -525,6 +526,37 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
+// FIX 2: Helper class للزر العائم (بدل البلوك المباشر)
+// UIButton لا تدعم addTarget مع بلوك — لازم target + selector
+// ====================================================================
+@interface RavFloatButtonHandler : NSObject
++ (instancetype)shared;
+- (void)buttonTapped;
+@end
+
+@implementation RavFloatButtonHandler {
+    RavMenuView* _menu;
+}
+
++ (instancetype)shared {
+    static RavFloatButtonHandler* instance = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        instance = [[RavFloatButtonHandler alloc] init];
+    });
+    return instance;
+}
+
+- (void)buttonTapped {
+    if (!_menu) {
+        _menu = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    }
+    [_menu show];
+}
+
+@end
+
+// ====================================================================
 // 🚀 Constructor
 // ====================================================================
 __attribute__((constructor))
@@ -538,13 +570,12 @@ static void Init(void) {
         floatBtn.frame = CGRectMake([UIScreen mainScreen].bounds.size.width-60, 200, 50, 50);
         floatBtn.backgroundColor = [UIColor blackColor];
         floatBtn.layer.cornerRadius = 25;
-        [floatBtn addTarget:^{
-            static RavMenuView* menu = nil;
-            if (!menu) {
-                menu = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
-            }
-            [menu show];
-        } forControlEvents:UIControlEventTouchUpInside];
+
+        // FIX 2: استخدام target + selector بدل البلوك المباشر
+        [floatBtn addTarget:[RavFloatButtonHandler shared]
+                     action:@selector(buttonTapped)
+           forControlEvents:UIControlEventTouchUpInside];
+
         [[UIApplication sharedApplication].keyWindow addSubview:floatBtn];
     });
 
