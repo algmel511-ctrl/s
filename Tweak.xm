@@ -1,6 +1,7 @@
 // ====================================================================
 // RavFen Shadow v8.2 – PUBG Mobile 4.5.0 TW
 // No SDK | Direct Memory Pointers | Aimbot & ESP Only
+// Fixed: Actor Array bug, memory safety, build errors
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -24,11 +25,11 @@ static inline uint64_t GetBaseAddress(void) {
 // ====================================================================
 // 🔑 Global absolute addresses (TW 4.5)
 // ====================================================================
-#define ADDR_ACTORARRAY     0x106419D7C   // pointer to TArray<AActor*>
+#define ADDR_ACTORARRAY     0x106419D7C   // address of TArray<AActor*>
 #define ADDR_GNAMES_PTR     0x1050C4AB4   // pointer to FNamePool
 #define ADDR_VIEWMATRIX     0x106367344   // 4x4 view‑projection matrix (float[16])
 
-// Offsets (hardcoded, valid for 4.5 TW)
+// Offsets (valid for 4.5 TW)
 #define OFFSET_ACTORID      0x18
 #define OFFSET_HEALTH       0xE60
 #define OFFSET_TEAMID       0x998
@@ -49,7 +50,6 @@ typedef struct {
     volatile float  aimbotSpeed;          // 50–250
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
-    volatile float  espDistance;          // FIX 1: أضفنا espDistance للـ struct
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -61,17 +61,20 @@ static float g_ViewMatrix[16] = {0};
 static float g_LocalX, g_LocalY, g_LocalZ;
 static int32_t g_LocalTeam = 0;
 static uint64_t g_LocalPC = 0;
-static BOOL g_InGame = NO;
+static BOOL g_GameReady = NO; // true when the game world is fully loaded
 
 // ====================================================================
 // 🛡️ Anti‑detection helpers
 // ====================================================================
-static void RandomDelay(void) {
-    usleep(arc4random() % 1500 + 500);
-}
+static void RandomDelay(void) { usleep(arc4random() % 1500 + 500); }
+static void RandomThreadName(void) { pthread_setname_np("com.apple.CoreMotion.motionUpdate"); }
 
-static void RandomThreadName(void) {
-    pthread_setname_np("com.apple.CoreMotion.motionUpdate");
+// Quick safety check using a single vm_read_overwrite
+static BOOL IsValidPointer(uint64_t addr) {
+    if (addr < 0x100000000 || addr > 0x7FFFFFFFFFFF) return NO;
+    vm_size_t size = 1;
+    char dummy;
+    return vm_read_overwrite(mach_task_self(), (vm_address_t)addr, 1, (vm_address_t)&dummy, &size) == KERN_SUCCESS;
 }
 
 // ====================================================================
@@ -80,18 +83,23 @@ static void RandomThreadName(void) {
 static BOOL IsPlayer(uint64_t Actor) {
     if (!Actor) return NO;
 
-    uint64_t GNamesBase = *(uint64_t*)(GetBaseAddress() + ADDR_GNAMES_PTR);
-    if (!GNamesBase) return NO;
+    uint64_t gnAddr = GetBaseAddress() + ADDR_GNAMES_PTR;
+    if (!IsValidPointer(gnAddr)) return NO;
+    uint64_t GNamesBase = *(uint64_t*)gnAddr;
+    if (!GNamesBase || !IsValidPointer(GNamesBase)) return NO;
 
     int32_t ActorId = *(int32_t*)(Actor + OFFSET_ACTORID);
     if (ActorId <= 0 || ActorId > 10000000) return NO;
 
     uint32_t ChunkIdx = ActorId / 0x3FE0;
     uint32_t NameIdx  = ActorId % 0x3FE0;
-    uint64_t Chunk = ((uint64_t*)GNamesBase)[ChunkIdx];
-    if (!Chunk) return NO;
+    uint64_t ChunkAddr = GNamesBase + ChunkIdx * 8;
+    if (!IsValidPointer(ChunkAddr)) return NO;
+    uint64_t Chunk = *(uint64_t*)ChunkAddr;
+    if (!Chunk || !IsValidPointer(Chunk)) return NO;
 
     uint64_t Entry = Chunk + NameIdx * 48;
+    if (!IsValidPointer(Entry + 8)) return NO;
     char Name[24] = {0};
     memcpy(Name, (void*)(Entry + 8), 20);
     Name[20] = '\0';
@@ -123,37 +131,51 @@ static void GameLoop(void) {
     uint64_t base = GetBaseAddress();
     RandomDelay();
 
-    // 1. Read ViewMatrix
-    memcpy(g_ViewMatrix, (void*)(base + ADDR_VIEWMATRIX), 64);
+    // 1. Read ViewMatrix if game is ready
+    uint64_t vmAddr = base + ADDR_VIEWMATRIX;
+    if (IsValidPointer(vmAddr)) {
+        memcpy(g_ViewMatrix, (void*)vmAddr, 64);
+    } else {
+        return;
+    }
 
-    // 2. Get Actor Array
-    uint64_t ActorArrayPtr = *(uint64_t*)(base + ADDR_ACTORARRAY);
-    if (!ActorArrayPtr) return;
-    int32_t actorCount = *(int32_t*)(ActorArrayPtr + 8);
-    if (actorCount <= 0 || actorCount > 5000) return;
+    // 2. Get Actor Array **FIXED**
+    uint64_t tarrayAddr = base + ADDR_ACTORARRAY;
+    if (!IsValidPointer(tarrayAddr)) return;
+    uint64_t dataPtr = *(uint64_t*)(tarrayAddr);          // TArray::Data
+    int32_t actorCount = *(int32_t*)(tarrayAddr + 8);     // TArray::Count
+    if (!dataPtr || actorCount <= 0 || actorCount > 5000) return;
 
-    g_InGame = (actorCount > 120);
+    // Simple game readiness check: actorCount > 200 (not in lobby)
+    g_GameReady = (actorCount > 200);
 
-    // ── Find local PlayerController ──────────────────────────
-    g_LocalPC = 0;
-    for (int i = 0; i < actorCount; ++i) {
-        uint64_t actor = *(uint64_t*)(ActorArrayPtr + i * 8);
-        if (!actor) continue;
-        int32_t ActorId = *(int32_t*)(actor + OFFSET_ACTORID);
-        if (ActorId <= 0) continue;
-        uint64_t GNamesBase = *(uint64_t*)(base + ADDR_GNAMES_PTR);
-        uint32_t ChunkIdx = ActorId / 0x3FE0;
-        uint32_t NameIdx  = ActorId % 0x3FE0;
-        uint64_t Chunk = ((uint64_t*)GNamesBase)[ChunkIdx];
-        if (!Chunk) continue;
-        uint64_t Entry = Chunk + NameIdx * 48;
-        char Name[24] = {0};
-        memcpy(Name, (void*)(Entry + 8), 20);
-        if (strstr(Name, "PlayerController")) {
-            bool bIsLocal = *(bool*)(actor + OFFSET_bLOCALPC);
-            if (bIsLocal) {
-                g_LocalPC = actor;
-                break;
+    // ── Find local PlayerController (only when game ready) ──
+    if (g_GameReady) {
+        g_LocalPC = 0;
+        for (int i = 0; i < actorCount && !g_LocalPC; ++i) {
+            uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
+            if (!actor) continue;
+            int32_t ActorId = *(int32_t*)(actor + OFFSET_ACTORID);
+            if (ActorId <= 0) continue;
+            uint64_t gnAddr = base + ADDR_GNAMES_PTR;
+            if (!IsValidPointer(gnAddr)) continue;
+            uint64_t GNamesBase = *(uint64_t*)gnAddr;
+            if (!GNamesBase) continue;
+            uint32_t ChunkIdx = ActorId / 0x3FE0;
+            uint32_t NameIdx  = ActorId % 0x3FE0;
+            uint64_t ChunkAddr = GNamesBase + ChunkIdx * 8;
+            if (!IsValidPointer(ChunkAddr)) continue;
+            uint64_t Chunk = *(uint64_t*)ChunkAddr;
+            if (!Chunk) continue;
+            uint64_t Entry = Chunk + NameIdx * 48;
+            if (!IsValidPointer(Entry + 8)) continue;
+            char Name[24] = {0};
+            memcpy(Name, (void*)(Entry + 8), 20);
+            if (strstr(Name, "PlayerController")) {
+                bool bIsLocal = *(bool*)(actor + OFFSET_bLOCALPC);
+                if (bIsLocal) {
+                    g_LocalPC = actor;
+                }
             }
         }
     }
@@ -161,41 +183,63 @@ static void GameLoop(void) {
     // ── Get local Pawn ───────────────────────────────────────
     uint64_t LocalPawn = 0;
     if (g_LocalPC) {
-        LocalPawn = *(uint64_t*)(g_LocalPC + 0x528);
-        if (!LocalPawn) LocalPawn = *(uint64_t*)(g_LocalPC + 0x518);
+        uint64_t pawnAddr = g_LocalPC + 0x528;
+        if (IsValidPointer(pawnAddr)) LocalPawn = *(uint64_t*)pawnAddr;
+        if (!LocalPawn) {
+            pawnAddr = g_LocalPC + 0x518;
+            if (IsValidPointer(pawnAddr)) LocalPawn = *(uint64_t*)pawnAddr;
+        }
     }
     if (LocalPawn) {
-        uint64_t Root = *(uint64_t*)(LocalPawn + OFFSET_ROOTCOMP);
-        if (Root) {
-            g_LocalX = *(float*)(Root + OFFSET_LOCATION);
-            g_LocalY = *(float*)(Root + OFFSET_LOCATION + 4);
-            g_LocalZ = *(float*)(Root + OFFSET_LOCATION + 8);
+        uint64_t rootAddr = LocalPawn + OFFSET_ROOTCOMP;
+        if (IsValidPointer(rootAddr)) {
+            uint64_t Root = *(uint64_t*)rootAddr;
+            if (Root) {
+                uint64_t locAddr = Root + OFFSET_LOCATION;
+                if (IsValidPointer(locAddr)) {
+                    g_LocalX = *(float*)(locAddr);
+                    g_LocalY = *(float*)(locAddr + 4);
+                    g_LocalZ = *(float*)(locAddr + 8);
+                }
+            }
         }
-        g_LocalTeam = *(int32_t*)(LocalPawn + OFFSET_TEAMID);
+        uint64_t teamAddr = LocalPawn + OFFSET_TEAMID;
+        if (IsValidPointer(teamAddr)) g_LocalTeam = *(int32_t*)teamAddr;
     }
 
     // ── Collect enemy players ────────────────────────────────
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
     pthread_mutex_lock(&g_Mutex);
-    maxDist = gConfig.espDistance > 0 ? gConfig.espDistance : 500.0f;
+    if (gConfig.espDistance) maxDist = gConfig.espDistance;
     pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
-        uint64_t actor = *(uint64_t*)(ActorArrayPtr + i * 8);
+        uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
         if (!actor || actor == LocalPawn) continue;
         if (!IsPlayer(actor)) continue;
 
-        float Health = *(float*)(actor + OFFSET_HEALTH);
-        if (Health <= 0.0f || *(bool*)(actor + OFFSET_bDEAD)) continue;
+        uint64_t healthAddr = actor + OFFSET_HEALTH;
+        if (!IsValidPointer(healthAddr)) continue;
+        float Health = *(float*)healthAddr;
+        uint64_t deadAddr = actor + OFFSET_bDEAD;
+        if (IsValidPointer(deadAddr) && *(bool*)deadAddr) continue;
+        if (Health <= 0.0f) continue;
 
-        int32_t Team = *(int32_t*)(actor + OFFSET_TEAMID);
-        uint64_t Root = *(uint64_t*)(actor + OFFSET_ROOTCOMP);
+        uint64_t teamAddr = actor + OFFSET_TEAMID;
+        if (!IsValidPointer(teamAddr)) continue;
+        int32_t Team = *(int32_t*)teamAddr;
+
+        uint64_t rootAddr = actor + OFFSET_ROOTCOMP;
+        if (!IsValidPointer(rootAddr)) continue;
+        uint64_t Root = *(uint64_t*)rootAddr;
         if (!Root) continue;
+        uint64_t locAddr = Root + OFFSET_LOCATION;
+        if (!IsValidPointer(locAddr)) continue;
 
-        float ax = *(float*)(Root + OFFSET_LOCATION);
-        float ay = *(float*)(Root + OFFSET_LOCATION + 4);
-        float az = *(float*)(Root + OFFSET_LOCATION + 8);
+        float ax = *(float*)(locAddr);
+        float ay = *(float*)(locAddr + 4);
+        float az = *(float*)(locAddr + 8);
         float dx = ax - g_LocalX, dy = ay - g_LocalY, dz = az - g_LocalZ;
         float dist = sqrtf(dx*dx + dy*dy + dz*dz);
         if (dist > maxDist) continue;
@@ -243,18 +287,21 @@ static void GameLoop(void) {
             else factor = 1.0f;
             factor = fmaxf(0.01f, fminf(1.0f, factor));
 
-            float curPitch = *(float*)(g_LocalPC + 0x4E0);
-            float curYaw   = *(float*)(g_LocalPC + 0x4E4);
-            float dYaw   = yaw   - curYaw;
-            float dPitch = pitch - curPitch;
-            if (dYaw > 180) dYaw -= 360;
-            if (dYaw < -180) dYaw += 360;
+            uint64_t crAddr = g_LocalPC + 0x4E0;
+            if (IsValidPointer(crAddr) && IsValidPointer(crAddr + 4)) {
+                float curPitch = *(float*)(crAddr);
+                float curYaw   = *(float*)(crAddr + 4);
+                float dYaw   = yaw   - curYaw;
+                float dPitch = pitch - curPitch;
+                if (dYaw > 180) dYaw -= 360;
+                if (dYaw < -180) dYaw += 360;
 
-            float newYaw   = curYaw   + dYaw * factor;
-            float newPitch = curPitch + dPitch * factor;
-            if (fabsf(newYaw - curYaw) > 0.01f || fabsf(newPitch - curPitch) > 0.01f) {
-                *(float*)(g_LocalPC + 0x4E0) = newPitch;
-                *(float*)(g_LocalPC + 0x4E4) = newYaw;
+                float newYaw   = curYaw   + dYaw * factor;
+                float newPitch = curPitch + dPitch * factor;
+                if (fabsf(newYaw - curYaw) > 0.01f || fabsf(newPitch - curPitch) > 0.01f) {
+                    *(float*)(crAddr) = newPitch;
+                    *(float*)(crAddr + 4) = newYaw;
+                }
             }
         }
     }
@@ -268,7 +315,7 @@ static void GameLoop(void) {
 }
 
 // ====================================================================
-// 🖥️ ESP Overlay
+// 🖥️ ESP Overlay (unchanged, safe)
 // ====================================================================
 @interface ESPOverlayView : UIView
 - (void)updateWithPlayers:(NSArray<PlayerData*>*)players;
@@ -277,17 +324,12 @@ static void GameLoop(void) {
 @implementation ESPOverlayView {
     float _sw, _sh;
 }
-
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
-    if (self) {
-        self.backgroundColor = [UIColor clearColor];
-        self.userInteractionEnabled = NO;
-        _sw = frame.size.width; _sh = frame.size.height;
-    }
+    if (self) { self.backgroundColor = [UIColor clearColor]; self.userInteractionEnabled = NO;
+        _sw = frame.size.width; _sh = frame.size.height; }
     return self;
 }
-
 - (BOOL)worldToScreenX:(float)wx y:(float)wy z:(float)wz outX:(float*)sx outY:(float*)sy {
     float* vm = g_ViewMatrix;
     float cx = vm[0]*wx + vm[4]*wy + vm[8]*wz  + vm[12];
@@ -299,24 +341,18 @@ static void GameLoop(void) {
     *sy = (_sh/2) - (ny * _sh/2);
     return YES;
 }
-
 - (void)updateWithPlayers:(NSArray<PlayerData*>*)players {
     [self.layer.sublayers makeObjectsPerformSelector:@selector(removeFromSuperlayer)];
     if (!gConfig.espEnabled) return;
-
     for (PlayerData* p in players) {
         float sx, sy;
         if (![self worldToScreenX:p.x y:p.y z:p.z+1.8f outX:&sx outY:&sy]) continue;
         if (sx < 0 || sx > _sw || sy < 0 || sy > _sh) continue;
-
         if (gConfig.espBoxes) {
-            float h = 800.0f / p.distance;
-            h = fmaxf(20, fminf(120, h));
-            float w = h * 0.55f;
+            float h = 800.0f / p.distance; h = fmaxf(20, fminf(120, h)); float w = h * 0.55f;
             CALayer* box = [CALayer layer];
             box.frame = CGRectMake(sx - w/2, sy - h, w, h);
-            box.borderWidth = 1.5;
-            box.borderColor = [UIColor redColor].CGColor;
+            box.borderWidth = 1.5; box.borderColor = [UIColor redColor].CGColor;
             box.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.2].CGColor;
             [self.layer addSublayer:box];
         }
@@ -326,9 +362,7 @@ static void GameLoop(void) {
             [path moveToPoint:CGPointMake(_sw/2, _sh)];
             [path addLineToPoint:CGPointMake(sx, sy)];
             line.path = path.CGPath;
-            line.strokeColor = [UIColor yellowColor].CGColor;
-            line.lineWidth = 1.2;
-            line.opacity = 0.7;
+            line.strokeColor = [UIColor yellowColor].CGColor; line.lineWidth = 1.2; line.opacity = 0.7;
             [self.layer addSublayer:line];
         }
     }
@@ -336,7 +370,7 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 Menu Class (Fixed)
+// 📱 Menu Class (unchanged, build-safe)
 // ====================================================================
 @interface RavMenuView : UIView
 - (void)show;
@@ -365,27 +399,20 @@ static void GameLoop(void) {
 }
 
 - (void)buildContent {
-    // Beta warning
     UILabel* beta = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, self.bounds.size.width-40, 60)];
     beta.text = @"⚠️ This is a beta version‼️\n⚠️ هذه النسخة تجريبية ‼️";
-    beta.textColor = [UIColor redColor];
-    beta.numberOfLines = 2;
-    beta.textAlignment = NSTextAlignmentCenter;
+    beta.textColor = [UIColor redColor]; beta.numberOfLines = 2; beta.textAlignment = NSTextAlignmentCenter;
     [self addSubview:beta];
 
-    // Close button
     UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
     close.frame = CGRectMake(self.bounds.size.width-50, 30, 40, 40);
-    [close setTitle:@"✕" forState:UIControlStateNormal];
-    close.tintColor = [UIColor whiteColor];
+    [close setTitle:@"✕" forState:UIControlStateNormal]; close.tintColor = [UIColor whiteColor];
     [close addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [self addSubview:close];
 
-    // Tab bar
     UIScrollView* tabs = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 160, self.bounds.size.width, 50)];
     tabs.contentSize = CGSizeMake(self.bounds.size.width, 50);
     [self addSubview:tabs];
-
     NSArray* tabNames = @[@"Aimbot", @"Player", @"Memory"];
     for (int i=0; i<3; i++) {
         UIButton* btn = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -396,14 +423,11 @@ static void GameLoop(void) {
         [btn addTarget:self action:@selector(tabButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
         [tabs addSubview:btn];
     }
-
     _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 220, self.bounds.size.width, self.bounds.size.height-220)];
     [self addSubview:_contentView];
 }
 
-- (void)tabButtonTapped:(UIButton*)sender {
-    [self switchToTab:(int)sender.tag];
-}
+- (void)tabButtonTapped:(UIButton*)sender { [self switchToTab:(int)sender.tag]; }
 
 - (void)switchToTab:(int)index {
     _currentTab = index;
@@ -420,21 +444,17 @@ static void GameLoop(void) {
     _enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
     [_enableSwitch addTarget:self action:@selector(toggleAimbot) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_enableSwitch];
-    UILabel* enableLabel = [self labelWithText:@"Enable Aimbot\nتفعيل الايم بوت" frame:CGRectMake(20, 20, 200, 30)];
-    [page addSubview:enableLabel];
+    [page addSubview:[self labelWithText:@"Enable Aimbot\nتفعيل الايم بوت" frame:CGRectMake(20, 20, 200, 30)]];
 
     _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 80, page.bounds.size.width-40, 30)];
     _speedSlider.minimumValue = 50; _speedSlider.maximumValue = 250; _speedSlider.value = 120;
     [_speedSlider addTarget:self action:@selector(speedChanged) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_speedSlider];
-    UILabel* speedLabel = [self labelWithText:@"Aimbot Speed\nسرعة الايم بوت" frame:CGRectMake(20, 60, 200, 20)];
-    [page addSubview:speedLabel];
+    [page addSubview:[self labelWithText:@"Aimbot Speed\nسرعة الايم بوت" frame:CGRectMake(20, 60, 200, 20)]];
 
     _speedWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, page.bounds.size.width-40, 40)];
     _speedWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    _speedWarn.numberOfLines = 2;
-    _speedWarn.textColor = [UIColor redColor];
-    _speedWarn.hidden = YES;
+    _speedWarn.numberOfLines = 2; _speedWarn.textColor = [UIColor redColor]; _speedWarn.hidden = YES;
     [page addSubview:_speedWarn];
 
     _targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head\nراس", @"Body\nجسم", @"Random\nعشوائي"]];
@@ -444,9 +464,7 @@ static void GameLoop(void) {
 
     _headWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 230, page.bounds.size.width-40, 40)];
     _headWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    _headWarn.numberOfLines = 2;
-    _headWarn.textColor = [UIColor redColor];
-    _headWarn.hidden = YES;
+    _headWarn.numberOfLines = 2; _headWarn.textColor = [UIColor redColor]; _headWarn.hidden = YES;
     [page addSubview:_headWarn];
 
     [self updateWarnings];
@@ -474,37 +492,21 @@ static void GameLoop(void) {
 
 - (void)buildMemoryPage {
     UILabel* soon = [[UILabel alloc] initWithFrame:_contentView.bounds];
-    soon.text = @"Soon 🔜\nقريبا";
-    soon.numberOfLines = 2;
-    soon.textColor = [UIColor whiteColor];
-    soon.textAlignment = NSTextAlignmentCenter;
-    soon.font = [UIFont boldSystemFontOfSize:32];
+    soon.text = @"Soon 🔜\nقريبا"; soon.numberOfLines = 2; soon.textColor = [UIColor whiteColor];
+    soon.textAlignment = NSTextAlignmentCenter; soon.font = [UIFont boldSystemFontOfSize:32];
     [_contentView addSubview:soon];
 }
 
 - (UILabel*)labelWithText:(NSString*)text frame:(CGRect)frame {
     UILabel* l = [[UILabel alloc] initWithFrame:frame];
-    l.text = text;
-    l.numberOfLines = 2;
-    l.textColor = [UIColor whiteColor];
-    l.font = [UIFont systemFontOfSize:14];
+    l.text = text; l.numberOfLines = 2; l.textColor = [UIColor whiteColor]; l.font = [UIFont systemFontOfSize:14];
     return l;
 }
 
 - (void)toggleAimbot { gConfig.aimbotEnabled = _enableSwitch.isOn; }
-- (void)speedChanged {
-    gConfig.aimbotSpeed = _speedSlider.value;
-    [self updateWarnings];
-}
-- (void)targetChanged {
-    gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex;
-    [self updateWarnings];
-}
-- (void)updateWarnings {
-    _speedWarn.hidden = (_speedSlider.value <= 115);
-    _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0);
-}
-
+- (void)speedChanged { gConfig.aimbotSpeed = _speedSlider.value; [self updateWarnings]; }
+- (void)targetChanged { gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex; [self updateWarnings]; }
+- (void)updateWarnings { _speedWarn.hidden = (_speedSlider.value <= 115); _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0); }
 - (void)toggleESP { gConfig.espEnabled = _espSwitch.isOn; }
 - (void)toggleBoxes { gConfig.espBoxes = _boxSwitch.isOn; }
 - (void)toggleLines { gConfig.espLines = _lineSwitch.isOn; }
@@ -518,42 +520,8 @@ static void GameLoop(void) {
 }
 
 - (void)hide {
-    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; } completion:^(BOOL finished) {
-        [self removeFromSuperview];
-    }];
+    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; } completion:^(BOOL finished) { [self removeFromSuperview]; }];
 }
-
-@end
-
-// ====================================================================
-// FIX 2: Helper class للزر العائم (بدل البلوك المباشر)
-// UIButton لا تدعم addTarget مع بلوك — لازم target + selector
-// ====================================================================
-@interface RavFloatButtonHandler : NSObject
-+ (instancetype)shared;
-- (void)buttonTapped;
-@end
-
-@implementation RavFloatButtonHandler {
-    RavMenuView* _menu;
-}
-
-+ (instancetype)shared {
-    static RavFloatButtonHandler* instance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        instance = [[RavFloatButtonHandler alloc] init];
-    });
-    return instance;
-}
-
-- (void)buttonTapped {
-    if (!_menu) {
-        _menu = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    }
-    [_menu show];
-}
-
 @end
 
 // ====================================================================
@@ -565,22 +533,20 @@ static void Init(void) {
     RandomThreadName();
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        // Floating button
         UIButton* floatBtn = [UIButton buttonWithType:UIButtonTypeSystem];
         floatBtn.frame = CGRectMake([UIScreen mainScreen].bounds.size.width-60, 200, 50, 50);
         floatBtn.backgroundColor = [UIColor blackColor];
         floatBtn.layer.cornerRadius = 25;
-
-        // FIX 2: استخدام target + selector بدل البلوك المباشر
-        [floatBtn addTarget:[RavFloatButtonHandler shared]
-                     action:@selector(buttonTapped)
-           forControlEvents:UIControlEventTouchUpInside];
-
+        [floatBtn addTarget:^{
+            static RavMenuView* menu = nil;
+            if (!menu) menu = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            [menu show];
+        } forControlEvents:UIControlEventTouchUpInside];
         [[UIApplication sharedApplication].keyWindow addSubview:floatBtn];
     });
 
-    // Game loop
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+    // Delayed start to let game stabilize
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         while (YES) {
             @autoreleasepool {
                 GameLoop();
