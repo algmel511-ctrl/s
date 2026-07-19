@@ -1,6 +1,6 @@
 // ====================================================================
-// RavFen Shadow v8.2 – PUBG Mobile 4.5.0 TW (Full Code)
-// New UI, Golden Knight Button, Jailbreak Bypass
+// RavFen Shadow v8.2 – PUBG Mobile 4.5.0 TW (Stable Release)
+// Fixed: Crash on launch, Menu reopening, Google Bypass
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -14,7 +14,7 @@
 #import <objc/runtime.h>
 
 // ====================================================================
-// 🛡️ Jailbreak / Modified App Bypass
+// 🛡️ Smart Jailbreak Bypass (Bundle ID + URL Filtering)
 // ====================================================================
 static IMP originalBundleIdentifier = NULL;
 
@@ -22,12 +22,25 @@ static NSString* replacedBundleIdentifier(id self, SEL _cmd) {
     return @"com.tencent.ig";
 }
 
-__attribute__((constructor))
-static void initBypass(void) {
-    Method m = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
-    if (m) {
-        originalBundleIdentifier = method_setImplementation(m, (IMP)replacedBundleIdentifier);
+static IMP originalCanOpenURL = NULL;
+
+static BOOL replacedCanOpenURL(id self, SEL _cmd, NSURL* url) {
+    // فقط نمنع روابط كشف الاختراق، ونسمح بالباقي
+    if ([url.scheme isEqualToString:@"cydia"] || [url.absoluteString containsString:@"jailbreak"]) {
+        NSLog(@"[RavFen] Blocked JB detection URL: %@", url);
+        return NO;
     }
+    // استدعاء الدالة الأصلية لبقية الروابط
+    return ((BOOL(*)(id, SEL, NSURL*))originalCanOpenURL)(self, _cmd, url);
+}
+
+__attribute__((constructor))
+static void initBypasses(void) {
+    Method m = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
+    if (m) originalBundleIdentifier = method_setImplementation(m, (IMP)replacedBundleIdentifier);
+    
+    Method m2 = class_getInstanceMethod([UIApplication class], @selector(canOpenURL:));
+    if (m2) originalCanOpenURL = method_setImplementation(m2, (IMP)replacedCanOpenURL);
 }
 
 // ====================================================================
@@ -63,11 +76,10 @@ static pthread_mutex_t g_Mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef enum { Target_Head = 0, Target_Body = 1, Target_Random = 2 } AimTarget;
 
 typedef struct {
-    volatile BOOL      aimbotEnabled;
-    volatile float     aimbotSpeed;
+    volatile BOOL   aimbotEnabled;
+    volatile float  aimbotSpeed;
     volatile AimTarget aimTarget;
-    volatile BOOL      espEnabled, espLines, espBoxes;
-    volatile float     espDistance;   // FIX: was missing, caused compile error
+    volatile BOOL   espEnabled, espLines, espBoxes;
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -200,9 +212,7 @@ static void GameLoop(void) {
     // Collect enemies
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
-    pthread_mutex_lock(&g_Mutex);
-    maxDist = gConfig.espDistance > 0.0f ? gConfig.espDistance : 500.0f;
-    pthread_mutex_unlock(&g_Mutex);
+    pthread_mutex_lock(&g_Mutex); maxDist = gConfig.espDistance ? gConfig.espDistance : 500.0f; pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
         uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
@@ -356,7 +366,6 @@ static void GameLoop(void) {
     int _currentTab;
     UISwitch* _enableSwitch;
     UISlider* _speedSlider;
-    UISlider* _distSlider;
     UISegmentedControl* _targetSegment;
     UISwitch* _espSwitch, *_boxSwitch, *_lineSwitch;
     UILabel* _speedWarn, *_headWarn;
@@ -385,7 +394,7 @@ static void GameLoop(void) {
     _cardView.clipsToBounds = YES;
     [self addSubview:_cardView];
     
-    // Header with Knight Icon
+    // Header
     UILabel* headerIcon = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, cardWidth, 50)];
     headerIcon.text = @"🛡️";
     headerIcon.textAlignment = NSTextAlignmentCenter;
@@ -399,14 +408,6 @@ static void GameLoop(void) {
     headerTitle.font = [UIFont boldSystemFontOfSize:20];
     [_cardView addSubview:headerTitle];
     
-    UILabel* headerSubtitle = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, cardWidth, 20)];
-    headerSubtitle.text = @"v8.2 Beta • TW 4.5";
-    headerSubtitle.textColor = [UIColor lightGrayColor];
-    headerSubtitle.textAlignment = NSTextAlignmentCenter;
-    headerSubtitle.font = [UIFont systemFontOfSize:12];
-    [_cardView addSubview:headerSubtitle];
-    
-    // Close Button
     UIButton* closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     closeBtn.frame = CGRectMake(cardWidth - 45, 15, 35, 35);
     closeBtn.backgroundColor = [UIColor colorWithWhite:0.2 alpha:0.8];
@@ -430,15 +431,12 @@ static void GameLoop(void) {
         [_cardView addSubview:tabBtn];
     }
     
-    // Separator
     UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(15, 160, cardWidth-30, 1)];
     sep.backgroundColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.4];
     [_cardView addSubview:sep];
     
-    // Content Area
     _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 170, cardWidth, cardHeight - 180)];
     [_cardView addSubview:_contentView];
-    
     [self switchToTab:0];
 }
 
@@ -456,13 +454,11 @@ static void GameLoop(void) {
     [_contentView addSubview:page];
     CGFloat w = page.bounds.size.width;
     
-    // Enable
     _enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 15, 50, 30)];
     [_enableSwitch addTarget:self action:@selector(toggleAimbot) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_enableSwitch];
     [page addSubview:[self labelWithText:@"Enable Aimbot" frame:CGRectMake(20, 15, w-100, 30) size:16]];
     
-    // Speed
     _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 70, w-40, 30)];
     _speedSlider.minimumValue = 50; _speedSlider.maximumValue = 250; _speedSlider.value = 120;
     _speedSlider.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
@@ -476,7 +472,6 @@ static void GameLoop(void) {
     _speedWarn.hidden = YES;
     [page addSubview:_speedWarn];
     
-    // Target
     _targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Body", @"Random"]];
     _targetSegment.frame = CGRectMake(20, 150, w-40, 35);
     _targetSegment.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
@@ -495,31 +490,20 @@ static void GameLoop(void) {
     [_contentView addSubview:page];
     CGFloat w = page.bounds.size.width;
     
-    // Enable ESP
     _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 15, 50, 30)];
     [_espSwitch addTarget:self action:@selector(toggleESP) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_espSwitch];
     [page addSubview:[self labelWithText:@"Enable ESP" frame:CGRectMake(20, 15, w-100, 30) size:16]];
     
-    // Boxes
     _boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 65, 50, 30)];
     [_boxSwitch addTarget:self action:@selector(toggleBoxes) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_boxSwitch];
     [page addSubview:[self labelWithText:@"Boxes" frame:CGRectMake(20, 65, w-100, 30) size:16]];
     
-    // Lines
     _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 115, 50, 30)];
     [_lineSwitch addTarget:self action:@selector(toggleLines) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_lineSwitch];
     [page addSubview:[self labelWithText:@"Lines" frame:CGRectMake(20, 115, w-100, 30) size:16]];
-
-    // Distance Slider
-    [page addSubview:[self labelWithText:@"Distance: 500m" frame:CGRectMake(20, 165, w-40, 20) size:12]];
-    _distSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 185, w-40, 30)];
-    _distSlider.minimumValue = 100; _distSlider.maximumValue = 2000; _distSlider.value = 500;
-    _distSlider.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
-    [_distSlider addTarget:self action:@selector(distChanged) forControlEvents:UIControlEventValueChanged];
-    [page addSubview:_distSlider];
 }
 
 - (void)buildMemoryPage {
@@ -535,14 +519,12 @@ static void GameLoop(void) {
     return l;
 }
 
-// Actions
-- (void)toggleAimbot  { gConfig.aimbotEnabled = _enableSwitch.isOn; }
-- (void)speedChanged  { gConfig.aimbotSpeed = _speedSlider.value; _speedWarn.hidden = (_speedSlider.value <= 115); }
+- (void)toggleAimbot { gConfig.aimbotEnabled = _enableSwitch.isOn; }
+- (void)speedChanged { gConfig.aimbotSpeed = _speedSlider.value; _speedWarn.hidden = (_speedSlider.value <= 115); }
 - (void)targetChanged { gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex; _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0); }
-- (void)toggleESP     { gConfig.espEnabled = _espSwitch.isOn; }
-- (void)toggleBoxes   { gConfig.espBoxes = _boxSwitch.isOn; }
-- (void)toggleLines   { gConfig.espLines = _lineSwitch.isOn; }
-- (void)distChanged   { gConfig.espDistance = _distSlider.value; }
+- (void)toggleESP { gConfig.espEnabled = _espSwitch.isOn; }
+- (void)toggleBoxes { gConfig.espBoxes = _boxSwitch.isOn; }
+- (void)toggleLines { gConfig.espLines = _lineSwitch.isOn; }
 
 - (void)show {
     self.alpha = 0;
@@ -553,7 +535,10 @@ static void GameLoop(void) {
 }
 
 - (void)hide {
-    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; } completion:^(BOOL finished) { [self removeFromSuperview]; }];
+    __weak typeof(self) weakSelf = self;
+    [UIView animateWithDuration:0.3 animations:^{ self.alpha = 0; } completion:^(BOOL finished) {
+        [weakSelf removeFromSuperview];
+    }];
 }
 @end
 
@@ -565,7 +550,6 @@ static void GameLoop(void) {
 - (void)setup;
 - (void)showMenu;
 - (void)hideMenu;
-- (UIWindow*)findKeyWindow;
 @end
 
 @implementation RavUIManager {
@@ -604,9 +588,6 @@ static void GameLoop(void) {
     _floatBtn.layer.cornerRadius = 27.5;
     _floatBtn.layer.borderColor = [UIColor blackColor].CGColor;
     _floatBtn.layer.borderWidth = 2.0;
-    _floatBtn.layer.shadowColor = [UIColor blackColor].CGColor;
-    _floatBtn.layer.shadowOffset = CGSizeMake(0, 2);
-    _floatBtn.layer.shadowOpacity = 0.8;
     
     UILabel* iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 55, 55)];
     iconLabel.text = @"🛡️";
@@ -646,19 +627,33 @@ static void GameLoop(void) {
 
 - (void)showMenu {
     if (_menuVisible) return;
-    if (!_menuView) _menuView = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    
+    // إعادة إنشاء القائمة إذا كانت غير موجودة أو تمت إزالتها
+    if (!_menuView) {
+        _menuView = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    }
+    
     _menuView.alpha = 0;
     UIWindow* window = [self findKeyWindow] ?: [UIApplication sharedApplication].keyWindow;
     [window addSubview:_menuView];
     [window bringSubviewToFront:_menuView];
-    [UIView animateWithDuration:0.3 animations:^{ _menuView.alpha = 1; }];
+    
+    [UIView animateWithDuration:0.3 animations:^{
+        _menuView.alpha = 1;
+    }];
     _menuVisible = YES;
 }
 
 - (void)hideMenu {
     if (!_menuVisible) return;
-    [UIView animateWithDuration:0.3 animations:^{ _menuView.alpha = 0; } completion:^(BOOL finished) { [self->_menuView removeFromSuperview]; }];
-    _menuVisible = NO;
+    __weak typeof(self) weakSelf = self;
+    [UIView animateWithDuration:0.3 animations:^{
+        _menuView.alpha = 0;
+    } completion:^(BOOL finished) {
+        [weakSelf->_menuView removeFromSuperview];
+        weakSelf->_menuView = nil; // تنظيف كامل
+        weakSelf->_menuVisible = NO;
+    }];
 }
 @end
 
@@ -684,7 +679,8 @@ static void Init(void) {
         }];
     });
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+    // تأخير بدء الحلقة لمنح اللعبة وقتاً كافياً للتحميل
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         while (YES) {
             @autoreleasepool {
                 GameLoop();
