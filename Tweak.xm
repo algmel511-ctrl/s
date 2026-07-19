@@ -19,14 +19,11 @@
 static IMP originalBundleIdentifier = NULL;
 
 static NSString* replacedBundleIdentifier(id self, SEL _cmd) {
-    // عندما تطلب اللعبة معرف الحزمة للتأكد من التوقيع
-    // نرد عليها بمعرف الحزمة الرسمي للعبة
     return @"com.tencent.ig";
 }
 
 __attribute__((constructor))
 static void initBypass(void) {
-    // اعتراض دالة bundleIdentifier الخاصة بـ NSBundle
     Method m = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
     if (m) {
         originalBundleIdentifier = method_setImplementation(m, (IMP)replacedBundleIdentifier);
@@ -66,10 +63,11 @@ static pthread_mutex_t g_Mutex = PTHREAD_MUTEX_INITIALIZER;
 typedef enum { Target_Head = 0, Target_Body = 1, Target_Random = 2 } AimTarget;
 
 typedef struct {
-    volatile BOOL   aimbotEnabled;
-    volatile float  aimbotSpeed;
+    volatile BOOL      aimbotEnabled;
+    volatile float     aimbotSpeed;
     volatile AimTarget aimTarget;
-    volatile BOOL   espEnabled, espLines, espBoxes;
+    volatile BOOL      espEnabled, espLines, espBoxes;
+    volatile float     espDistance;   // FIX: was missing, caused compile error
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -202,7 +200,9 @@ static void GameLoop(void) {
     // Collect enemies
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
-    pthread_mutex_lock(&g_Mutex); maxDist = gConfig.espDistance ? gConfig.espDistance : 500.0f; pthread_mutex_unlock(&g_Mutex);
+    pthread_mutex_lock(&g_Mutex);
+    maxDist = gConfig.espDistance > 0.0f ? gConfig.espDistance : 500.0f;
+    pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
         uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
@@ -356,6 +356,7 @@ static void GameLoop(void) {
     int _currentTab;
     UISwitch* _enableSwitch;
     UISlider* _speedSlider;
+    UISlider* _distSlider;
     UISegmentedControl* _targetSegment;
     UISwitch* _espSwitch, *_boxSwitch, *_lineSwitch;
     UILabel* _speedWarn, *_headWarn;
@@ -380,7 +381,7 @@ static void GameLoop(void) {
     _cardView.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.15 alpha:0.95];
     _cardView.layer.cornerRadius = 20;
     _cardView.layer.borderWidth = 2;
-    _cardView.layer.borderColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.8].CGColor; // Gold border
+    _cardView.layer.borderColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.8].CGColor;
     _cardView.clipsToBounds = YES;
     [self addSubview:_cardView];
     
@@ -393,7 +394,7 @@ static void GameLoop(void) {
     
     UILabel* headerTitle = [[UILabel alloc] initWithFrame:CGRectMake(0, 65, cardWidth, 30)];
     headerTitle.text = @"RAVFEN SHIELD";
-    headerTitle.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]; // Gold
+    headerTitle.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
     headerTitle.textAlignment = NSTextAlignmentCenter;
     headerTitle.font = [UIFont boldSystemFontOfSize:20];
     [_cardView addSubview:headerTitle];
@@ -494,20 +495,31 @@ static void GameLoop(void) {
     [_contentView addSubview:page];
     CGFloat w = page.bounds.size.width;
     
+    // Enable ESP
     _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 15, 50, 30)];
     [_espSwitch addTarget:self action:@selector(toggleESP) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_espSwitch];
     [page addSubview:[self labelWithText:@"Enable ESP" frame:CGRectMake(20, 15, w-100, 30) size:16]];
     
+    // Boxes
     _boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 65, 50, 30)];
     [_boxSwitch addTarget:self action:@selector(toggleBoxes) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_boxSwitch];
     [page addSubview:[self labelWithText:@"Boxes" frame:CGRectMake(20, 65, w-100, 30) size:16]];
     
+    // Lines
     _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 115, 50, 30)];
     [_lineSwitch addTarget:self action:@selector(toggleLines) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_lineSwitch];
     [page addSubview:[self labelWithText:@"Lines" frame:CGRectMake(20, 115, w-100, 30) size:16]];
+
+    // Distance Slider
+    [page addSubview:[self labelWithText:@"Distance: 500m" frame:CGRectMake(20, 165, w-40, 20) size:12]];
+    _distSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 185, w-40, 30)];
+    _distSlider.minimumValue = 100; _distSlider.maximumValue = 2000; _distSlider.value = 500;
+    _distSlider.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
+    [_distSlider addTarget:self action:@selector(distChanged) forControlEvents:UIControlEventValueChanged];
+    [page addSubview:_distSlider];
 }
 
 - (void)buildMemoryPage {
@@ -524,12 +536,13 @@ static void GameLoop(void) {
 }
 
 // Actions
-- (void)toggleAimbot { gConfig.aimbotEnabled = _enableSwitch.isOn; }
-- (void)speedChanged { gConfig.aimbotSpeed = _speedSlider.value; _speedWarn.hidden = (_speedSlider.value <= 115); }
+- (void)toggleAimbot  { gConfig.aimbotEnabled = _enableSwitch.isOn; }
+- (void)speedChanged  { gConfig.aimbotSpeed = _speedSlider.value; _speedWarn.hidden = (_speedSlider.value <= 115); }
 - (void)targetChanged { gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex; _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0); }
-- (void)toggleESP { gConfig.espEnabled = _espSwitch.isOn; }
-- (void)toggleBoxes { gConfig.espBoxes = _boxSwitch.isOn; }
-- (void)toggleLines { gConfig.espLines = _lineSwitch.isOn; }
+- (void)toggleESP     { gConfig.espEnabled = _espSwitch.isOn; }
+- (void)toggleBoxes   { gConfig.espBoxes = _boxSwitch.isOn; }
+- (void)toggleLines   { gConfig.espLines = _lineSwitch.isOn; }
+- (void)distChanged   { gConfig.espDistance = _distSlider.value; }
 
 - (void)show {
     self.alpha = 0;
@@ -552,6 +565,7 @@ static void GameLoop(void) {
 - (void)setup;
 - (void)showMenu;
 - (void)hideMenu;
+- (UIWindow*)findKeyWindow;
 @end
 
 @implementation RavUIManager {
@@ -586,7 +600,7 @@ static void GameLoop(void) {
 
     _floatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     _floatBtn.frame = CGRectMake(targetWindow.bounds.size.width - 65, 250, 55, 55);
-    _floatBtn.backgroundColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.9]; // Gold
+    _floatBtn.backgroundColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.9];
     _floatBtn.layer.cornerRadius = 27.5;
     _floatBtn.layer.borderColor = [UIColor blackColor].CGColor;
     _floatBtn.layer.borderWidth = 2.0;
@@ -594,7 +608,6 @@ static void GameLoop(void) {
     _floatBtn.layer.shadowOffset = CGSizeMake(0, 2);
     _floatBtn.layer.shadowOpacity = 0.8;
     
-    // Knight icon
     UILabel* iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 55, 55)];
     iconLabel.text = @"🛡️";
     iconLabel.textAlignment = NSTextAlignmentCenter;
@@ -660,12 +673,11 @@ static void Init(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[RavUIManager shared] setup];
         
-        // ESP Overlay setup
         ESPOverlayView* espView = [[ESPOverlayView alloc] initWithFrame:[UIScreen mainScreen].bounds];
         UIWindow* targetWindow = [[RavUIManager shared] findKeyWindow] ?: [UIApplication sharedApplication].keyWindow;
         if (targetWindow) {
             [targetWindow addSubview:espView];
-            [targetWindow sendSubviewToBack:espView]; // Behind UI elements
+            [targetWindow sendSubviewToBack:espView];
         }
         [[NSNotificationCenter defaultCenter] addObserverForName:@"RavFenUpdateESP" object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* note) {
             [espView updateWithPlayers:note.userInfo[@"players"]];
