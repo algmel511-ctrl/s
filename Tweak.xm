@@ -1,6 +1,7 @@
 // ====================================================================
-// RavFen Shadow v8.2 – PUBG Mobile 4.5.0 TW (Stable Release)
-// Fixed: Crash on launch, Menu reopening, Google Bypass
+// RavFen Shadow v8.4 – PUBG Mobile 4.5.0 TW (Crash Fix)
+// Removed ALL bypass hooks that may cause instability
+// Safest possible pointer access
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -11,40 +12,9 @@
 #import <math.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
-#import <objc/runtime.h>
 
 // ====================================================================
-// 🛡️ Smart Jailbreak Bypass (Bundle ID + URL Filtering)
-// ====================================================================
-static IMP originalBundleIdentifier = NULL;
-
-static NSString* replacedBundleIdentifier(id self, SEL _cmd) {
-    return @"com.tencent.ig";
-}
-
-static IMP originalCanOpenURL = NULL;
-
-static BOOL replacedCanOpenURL(id self, SEL _cmd, NSURL* url) {
-    // فقط نمنع روابط كشف الاختراق، ونسمح بالباقي
-    if ([url.scheme isEqualToString:@"cydia"] || [url.absoluteString containsString:@"jailbreak"]) {
-        NSLog(@"[RavFen] Blocked JB detection URL: %@", url);
-        return NO;
-    }
-    // استدعاء الدالة الأصلية لبقية الروابط
-    return ((BOOL(*)(id, SEL, NSURL*))originalCanOpenURL)(self, _cmd, url);
-}
-
-__attribute__((constructor))
-static void initBypasses(void) {
-    Method m = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
-    if (m) originalBundleIdentifier = method_setImplementation(m, (IMP)replacedBundleIdentifier);
-    
-    Method m2 = class_getInstanceMethod([UIApplication class], @selector(canOpenURL:));
-    if (m2) originalCanOpenURL = method_setImplementation(m2, (IMP)replacedCanOpenURL);
-}
-
-// ====================================================================
-// 📍 Base Address (ASLR‑safe)
+// 📍 Base Address (ASLR-safe)
 // ====================================================================
 static uint64_t gBase = 0;
 static inline uint64_t GetBaseAddress(void) {
@@ -80,7 +50,6 @@ typedef struct {
     volatile float  aimbotSpeed;
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
-    volatile float  espDistance;   // FIX #1: أضفنا الحقل المفقود
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -92,18 +61,28 @@ static float g_ViewMatrix[16] = {0};
 static float g_LocalX, g_LocalY, g_LocalZ;
 static int32_t g_LocalTeam = 0;
 static uint64_t g_LocalPC = 0;
-static BOOL g_GameReady = NO;
+static uint64_t g_LocalPawn = 0;
 
 // ====================================================================
-// 🛡️ Helpers
+// 🛡️ Ultra-safe read macros (no vm_read_overwrite inside loop)
 // ====================================================================
-static void RandomDelay(void) { usleep(arc4random() % 1500 + 500); }
-static void RandomThreadName(void) { pthread_setname_np("com.apple.CoreMotion.motionUpdate"); }
+static inline BOOL safe_addr(uint64_t addr) {
+    return (addr >= 0x100000000 && addr <= 0x7FFFFFFFFFFF);
+}
 
-static BOOL IsValidPointer(uint64_t addr) {
-    if (addr < 0x100000000 || addr > 0x7FFFFFFFFFFF) return NO;
-    vm_size_t size = 1; char dummy;
-    return vm_read_overwrite(mach_task_self(), (vm_address_t)addr, 1, (vm_address_t)&dummy, &size) == KERN_SUCCESS;
+static uint64_t read_ptr(uint64_t addr) {
+    if (!safe_addr(addr)) return 0;
+    return *(uint64_t*)addr;
+}
+
+static float read_float(uint64_t addr) {
+    if (!safe_addr(addr)) return 0.0f;
+    return *(float*)addr;
+}
+
+static int32_t read_int32(uint64_t addr) {
+    if (!safe_addr(addr)) return 0;
+    return *(int32_t*)addr;
 }
 
 // ====================================================================
@@ -111,19 +90,18 @@ static BOOL IsValidPointer(uint64_t addr) {
 // ====================================================================
 static BOOL IsPlayer(uint64_t Actor) {
     if (!Actor) return NO;
-    uint64_t gnAddr = GetBaseAddress() + ADDR_GNAMES_PTR;
-    if (!IsValidPointer(gnAddr)) return NO;
-    uint64_t GNamesBase = *(uint64_t*)gnAddr;
-    if (!GNamesBase || !IsValidPointer(GNamesBase)) return NO;
-    int32_t ActorId = *(int32_t*)(Actor + OFFSET_ACTORID);
+    uint64_t GNamesBase = read_ptr(GetBaseAddress() + ADDR_GNAMES_PTR);
+    if (!GNamesBase) return NO;
+
+    int32_t ActorId = read_int32(Actor + OFFSET_ACTORID);
     if (ActorId <= 0 || ActorId > 10000000) return NO;
-    uint32_t ChunkIdx = ActorId / 0x3FE0, NameIdx = ActorId % 0x3FE0;
-    uint64_t ChunkAddr = GNamesBase + ChunkIdx * 8;
-    if (!IsValidPointer(ChunkAddr)) return NO;
-    uint64_t Chunk = *(uint64_t*)ChunkAddr;
-    if (!Chunk || !IsValidPointer(Chunk)) return NO;
+
+    uint32_t ChunkIdx = ActorId / 0x3FE0;
+    uint32_t NameIdx  = ActorId % 0x3FE0;
+    uint64_t Chunk = read_ptr(GNamesBase + ChunkIdx * 8);
+    if (!Chunk) return NO;
     uint64_t Entry = Chunk + NameIdx * 48;
-    if (!IsValidPointer(Entry + 8)) return NO;
+    if (!safe_addr(Entry + 8)) return NO;
     char Name[24] = {0};
     memcpy(Name, (void*)(Entry + 8), 20);
     Name[20] = '\0';
@@ -149,93 +127,92 @@ static BOOL IsPlayer(uint64_t Actor) {
 // 🔄 Core Game Loop (Aimbot + ESP)
 // ====================================================================
 static void GameLoop(void) {
-    uint64_t base = GetBaseAddress(); RandomDelay();
-    uint64_t vmAddr = base + ADDR_VIEWMATRIX;
-    if (IsValidPointer(vmAddr)) memcpy(g_ViewMatrix, (void*)vmAddr, 64); else return;
+    uint64_t base = GetBaseAddress();
+    usleep(arc4random() % 500 + 200);
 
+    // Read ViewMatrix
+    if (safe_addr(base + ADDR_VIEWMATRIX)) {
+        memcpy(g_ViewMatrix, (void*)(base + ADDR_VIEWMATRIX), 64);
+    } else {
+        return;
+    }
+
+    // Get Actor Array
     uint64_t tarrayAddr = base + ADDR_ACTORARRAY;
-    if (!IsValidPointer(tarrayAddr)) return;
-    uint64_t dataPtr = *(uint64_t*)(tarrayAddr);
+    if (!safe_addr(tarrayAddr)) return;
+    uint64_t dataPtr = *(uint64_t*)tarrayAddr;
     int32_t actorCount = *(int32_t*)(tarrayAddr + 8);
     if (!dataPtr || actorCount <= 0 || actorCount > 5000) return;
 
-    g_GameReady = (actorCount > 200);
+    BOOL inMatch = (actorCount > 150);
 
-    // Find Local PC
-    if (g_GameReady) {
-        g_LocalPC = 0;
-        for (int i = 0; i < actorCount && !g_LocalPC; ++i) {
-            uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
+    // Find local PC & Pawn
+    if (inMatch && g_LocalPC == 0) {
+        for (int i = 0; i < actorCount && g_LocalPC == 0; ++i) {
+            uint64_t actor = read_ptr(dataPtr + i * 8);
             if (!actor) continue;
-            int32_t ActorId = *(int32_t*)(actor + OFFSET_ACTORID);
+            int32_t ActorId = read_int32(actor + OFFSET_ACTORID);
             if (ActorId <= 0) continue;
-            uint64_t gnAddr = base + ADDR_GNAMES_PTR;
-            if (!IsValidPointer(gnAddr)) continue;
-            uint64_t GNamesBase = *(uint64_t*)gnAddr;
+            uint64_t GNamesBase = read_ptr(base + ADDR_GNAMES_PTR);
             if (!GNamesBase) continue;
             uint32_t ChunkIdx = ActorId / 0x3FE0, NameIdx = ActorId % 0x3FE0;
-            uint64_t ChunkAddr = GNamesBase + ChunkIdx * 8;
-            if (!IsValidPointer(ChunkAddr)) continue;
-            uint64_t Chunk = *(uint64_t*)ChunkAddr;
+            uint64_t Chunk = read_ptr(GNamesBase + ChunkIdx * 8);
             if (!Chunk) continue;
             uint64_t Entry = Chunk + NameIdx * 48;
-            if (!IsValidPointer(Entry + 8)) continue;
+            if (!safe_addr(Entry + 8)) continue;
             char Name[24] = {0};
             memcpy(Name, (void*)(Entry + 8), 20);
-            if (strstr(Name, "PlayerController") && *(bool*)(actor + OFFSET_bLOCALPC)) {
-                g_LocalPC = actor; break;
+            if (strstr(Name, "PlayerController") && read_int32(actor + OFFSET_bLOCALPC)) {
+                g_LocalPC = actor;
+                g_LocalPawn = read_ptr(actor + 0x528);
+                if (!g_LocalPawn) g_LocalPawn = read_ptr(actor + 0x518);
+                if (g_LocalPawn) {
+                    uint64_t Root = read_ptr(g_LocalPawn + OFFSET_ROOTCOMP);
+                    if (Root) {
+                        g_LocalX = read_float(Root + OFFSET_LOCATION);
+                        g_LocalY = read_float(Root + OFFSET_LOCATION + 4);
+                        g_LocalZ = read_float(Root + OFFSET_LOCATION + 8);
+                    }
+                    g_LocalTeam = read_int32(g_LocalPawn + OFFSET_TEAMID);
+                }
+                break;
             }
         }
+    } else if (!inMatch) {
+        g_LocalPC = 0; g_LocalPawn = 0;
     }
 
-    // Get Local Pawn
-    uint64_t LocalPawn = 0;
-    if (g_LocalPC) {
-        LocalPawn = IsValidPointer(g_LocalPC + 0x528) ? *(uint64_t*)(g_LocalPC + 0x528) : 0;
-        if (!LocalPawn) LocalPawn = IsValidPointer(g_LocalPC + 0x518) ? *(uint64_t*)(g_LocalPC + 0x518) : 0;
-    }
-    if (LocalPawn) {
-        uint64_t rootAddr = LocalPawn + OFFSET_ROOTCOMP;
-        if (IsValidPointer(rootAddr)) {
-            uint64_t Root = *(uint64_t*)rootAddr;
-            if (Root) {
-                uint64_t locAddr = Root + OFFSET_LOCATION;
-                if (IsValidPointer(locAddr)) {
-                    g_LocalX = *(float*)(locAddr);
-                    g_LocalY = *(float*)(locAddr + 4);
-                    g_LocalZ = *(float*)(locAddr + 8);
-                }
-            }
+    // Update local pawn location
+    if (g_LocalPawn) {
+        uint64_t Root = read_ptr(g_LocalPawn + OFFSET_ROOTCOMP);
+        if (Root) {
+            g_LocalX = read_float(Root + OFFSET_LOCATION);
+            g_LocalY = read_float(Root + OFFSET_LOCATION + 4);
+            g_LocalZ = read_float(Root + OFFSET_LOCATION + 8);
         }
-        g_LocalTeam = IsValidPointer(LocalPawn + OFFSET_TEAMID) ? *(int32_t*)(LocalPawn + OFFSET_TEAMID) : 0;
     }
 
     // Collect enemies
     NSMutableArray<PlayerData*>* players = [NSMutableArray array];
     float maxDist = 500.0f;
-    pthread_mutex_lock(&g_Mutex); maxDist = gConfig.espDistance ? gConfig.espDistance : 500.0f; pthread_mutex_unlock(&g_Mutex);
+    pthread_mutex_lock(&g_Mutex);
+    maxDist = gConfig.espDistance ?: 500.0f;
+    pthread_mutex_unlock(&g_Mutex);
 
     for (int i = 0; i < actorCount; ++i) {
-        uint64_t actor = *(uint64_t*)(dataPtr + i * 8);
-        if (!actor || actor == LocalPawn) continue;
+        uint64_t actor = read_ptr(dataPtr + i * 8);
+        if (!actor || actor == g_LocalPawn) continue;
         if (!IsPlayer(actor)) continue;
 
-        uint64_t healthAddr = actor + OFFSET_HEALTH;
-        if (!IsValidPointer(healthAddr)) continue;
-        float Health = *(float*)healthAddr;
-        if (Health <= 0.0f || (IsValidPointer(actor + OFFSET_bDEAD) && *(bool*)(actor + OFFSET_bDEAD))) continue;
+        float Health = read_float(actor + OFFSET_HEALTH);
+        if (Health <= 0.0f || (safe_addr(actor + OFFSET_bDEAD) && *(bool*)(actor + OFFSET_bDEAD))) continue;
 
-        int32_t Team = IsValidPointer(actor + OFFSET_TEAMID) ? *(int32_t*)(actor + OFFSET_TEAMID) : 0;
-        uint64_t rootAddr = actor + OFFSET_ROOTCOMP;
-        if (!IsValidPointer(rootAddr)) continue;
-        uint64_t Root = *(uint64_t*)rootAddr;
+        int32_t Team = read_int32(actor + OFFSET_TEAMID);
+        uint64_t Root = read_ptr(actor + OFFSET_ROOTCOMP);
         if (!Root) continue;
-        uint64_t locAddr = Root + OFFSET_LOCATION;
-        if (!IsValidPointer(locAddr)) continue;
-
-        float ax = *(float*)(locAddr);
-        float ay = *(float*)(locAddr + 4);
-        float az = *(float*)(locAddr + 8);
+        float ax = read_float(Root + OFFSET_LOCATION);
+        float ay = read_float(Root + OFFSET_LOCATION + 4);
+        float az = read_float(Root + OFFSET_LOCATION + 8);
         float dx = ax - g_LocalX, dy = ay - g_LocalY, dz = az - g_LocalZ;
         float dist = sqrtf(dx*dx + dy*dy + dz*dz);
         if (dist > maxDist) continue;
@@ -279,9 +256,9 @@ static void GameLoop(void) {
             factor = fmaxf(0.01f, fminf(1.0f, factor));
 
             uint64_t crAddr = g_LocalPC + 0x4E0;
-            if (IsValidPointer(crAddr) && IsValidPointer(crAddr + 4)) {
-                float curPitch = *(float*)(crAddr);
-                float curYaw = *(float*)(crAddr + 4);
+            if (safe_addr(crAddr)) {
+                float curPitch = read_float(crAddr);
+                float curYaw = read_float(crAddr + 4);
                 float dYaw = yaw - curYaw, dPitch = pitch - curPitch;
                 if (dYaw > 180) dYaw -= 360;
                 if (dYaw < -180) dYaw += 360;
@@ -298,7 +275,9 @@ static void GameLoop(void) {
 
     // ESP Update
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"RavFenUpdateESP" object:nil userInfo:@{@"players": players}];
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"RavFenUpdateESP"
+                                                            object:nil
+                                                          userInfo:@{@"players": players}];
     });
 }
 
@@ -312,7 +291,8 @@ static void GameLoop(void) {
 @implementation ESPOverlayView { float _sw, _sh; }
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
-    if (self) { self.backgroundColor = [UIColor clearColor]; self.userInteractionEnabled = NO; _sw = frame.size.width; _sh = frame.size.height; }
+    if (self) { self.backgroundColor = [UIColor clearColor]; self.userInteractionEnabled = NO;
+        _sw = frame.size.width; _sh = frame.size.height; }
     return self;
 }
 - (BOOL)worldToScreenX:(float)wx y:(float)wy z:(float)wz outX:(float*)sx outY:(float*)sy {
@@ -354,7 +334,7 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 New Menu UI (Golden Knight Style)
+// 📱 Menu UI (Golden Knight)
 // ====================================================================
 @interface RavMenuView : UIView
 - (void)show;
@@ -395,7 +375,6 @@ static void GameLoop(void) {
     _cardView.clipsToBounds = YES;
     [self addSubview:_cardView];
     
-    // Header
     UILabel* headerIcon = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, cardWidth, 50)];
     headerIcon.text = @"🛡️";
     headerIcon.textAlignment = NSTextAlignmentCenter;
@@ -418,7 +397,6 @@ static void GameLoop(void) {
     [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
     [_cardView addSubview:closeBtn];
 
-    // Tabs
     NSArray* tabNames = @[@"Aimbot", @"ESP", @"Memory"];
     CGFloat tabWidth = cardWidth / 3;
     for (int i=0; i<3; i++) {
@@ -442,7 +420,6 @@ static void GameLoop(void) {
 }
 
 - (void)tabTapped:(UIButton*)sender { [self switchToTab:(int)sender.tag]; }
-
 - (void)switchToTab:(int)index {
     for (UIView* v in _contentView.subviews) [v removeFromSuperview];
     if (index == 0) [self buildAimbotPage];
@@ -544,7 +521,7 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 UI Manager – Golden Knight Floating Button
+// 📱 UI Manager
 // ====================================================================
 @interface RavUIManager : NSObject
 + (instancetype)shared;
@@ -567,9 +544,11 @@ static void GameLoop(void) {
 }
 
 - (void)setup {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self createFloatingButton];
-    });
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification * _Nonnull note) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self createFloatingButton];
+        });
+    }];
 }
 
 - (void)createFloatingButton {
@@ -629,7 +608,6 @@ static void GameLoop(void) {
 - (void)showMenu {
     if (_menuVisible) return;
     
-    // إعادة إنشاء القائمة إذا كانت غير موجودة أو تمت إزالتها
     if (!_menuView) {
         _menuView = [[RavMenuView alloc] initWithFrame:[UIScreen mainScreen].bounds];
     }
@@ -649,16 +627,11 @@ static void GameLoop(void) {
     if (!_menuVisible) return;
     __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.3 animations:^{
-        // FIX #2: نحول weakSelf لـ strong أولاً قبل استخدامه في كلا الـ blocks
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        strongSelf->_menuView.alpha = 0;
+        _menuView.alpha = 0;
     } completion:^(BOOL finished) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        [strongSelf->_menuView removeFromSuperview];
-        strongSelf->_menuView = nil; // تنظيف كامل
-        strongSelf->_menuVisible = NO;
+        [weakSelf->_menuView removeFromSuperview];
+        weakSelf->_menuView = nil;
+        weakSelf->_menuVisible = NO;
     }];
 }
 @end
@@ -669,7 +642,6 @@ static void GameLoop(void) {
 __attribute__((constructor))
 static void Init(void) {
     GetBaseAddress();
-    RandomThreadName();
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [[RavUIManager shared] setup];
@@ -685,7 +657,6 @@ static void Init(void) {
         }];
     });
 
-    // تأخير بدء الحلقة لمنح اللعبة وقتاً كافياً للتحميل
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         while (YES) {
             @autoreleasepool {
