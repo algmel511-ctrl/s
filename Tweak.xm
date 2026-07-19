@@ -1,5 +1,6 @@
 // ====================================================================
 // RavFen Shadow v8.2 – PUBG Mobile 4.5.0 TW (Full Code)
+// New UI, Golden Knight Button, Jailbreak Bypass
 // ====================================================================
 
 #import <UIKit/UIKit.h>
@@ -10,6 +11,27 @@
 #import <math.h>
 #import <sys/sysctl.h>
 #import <unistd.h>
+#import <objc/runtime.h>
+
+// ====================================================================
+// 🛡️ Jailbreak / Modified App Bypass
+// ====================================================================
+static IMP originalBundleIdentifier = NULL;
+
+static NSString* replacedBundleIdentifier(id self, SEL _cmd) {
+    // عندما تطلب اللعبة معرف الحزمة للتأكد من التوقيع
+    // نرد عليها بمعرف الحزمة الرسمي للعبة
+    return @"com.tencent.ig";
+}
+
+__attribute__((constructor))
+static void initBypass(void) {
+    // اعتراض دالة bundleIdentifier الخاصة بـ NSBundle
+    Method m = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
+    if (m) {
+        originalBundleIdentifier = method_setImplementation(m, (IMP)replacedBundleIdentifier);
+    }
+}
 
 // ====================================================================
 // 📍 Base Address (ASLR‑safe)
@@ -48,7 +70,6 @@ typedef struct {
     volatile float  aimbotSpeed;
     volatile AimTarget aimTarget;
     volatile BOOL   espEnabled, espLines, espBoxes;
-    volatile float  espDistance;  // ✅ FIX: added missing field
 } RavConfig;
 
 static RavConfig gConfig = {0};
@@ -322,7 +343,7 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 Menu Class (Fixed)
+// 📱 New Menu UI (Golden Knight Style)
 // ====================================================================
 @interface RavMenuView : UIView
 - (void)show;
@@ -330,6 +351,7 @@ static void GameLoop(void) {
 @end
 
 @implementation RavMenuView {
+    UIView* _cardView;
     UIView* _contentView;
     int _currentTab;
     UISwitch* _enableSwitch;
@@ -342,104 +364,150 @@ static void GameLoop(void) {
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = [UIColor colorWithWhite:0 alpha:0.85];
-        [self buildContent];
-        _currentTab = 0;
-        [self switchToTab:0];
+        self.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5];
+        [self buildMenuCard];
     }
     return self;
 }
 
-- (void)buildContent {
-    UILabel* beta = [[UILabel alloc] initWithFrame:CGRectMake(20, 80, self.bounds.size.width-40, 60)];
-    beta.text = @"⚠️ This is a beta version‼️\n⚠️ هذه النسخة تجريبية ‼️";
-    beta.textColor = [UIColor redColor]; beta.numberOfLines = 2; beta.textAlignment = NSTextAlignmentCenter;
-    [self addSubview:beta];
+- (void)buildMenuCard {
+    CGFloat cardWidth = self.bounds.size.width * 0.85;
+    CGFloat cardX = (self.bounds.size.width - cardWidth) / 2;
+    CGFloat cardY = self.bounds.size.height * 0.1;
+    CGFloat cardHeight = self.bounds.size.height * 0.8;
+    
+    _cardView = [[UIView alloc] initWithFrame:CGRectMake(cardX, cardY, cardWidth, cardHeight)];
+    _cardView.backgroundColor = [UIColor colorWithRed:0.1 green:0.1 blue:0.15 alpha:0.95];
+    _cardView.layer.cornerRadius = 20;
+    _cardView.layer.borderWidth = 2;
+    _cardView.layer.borderColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.8].CGColor; // Gold border
+    _cardView.clipsToBounds = YES;
+    [self addSubview:_cardView];
+    
+    // Header with Knight Icon
+    UILabel* headerIcon = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, cardWidth, 50)];
+    headerIcon.text = @"🛡️";
+    headerIcon.textAlignment = NSTextAlignmentCenter;
+    headerIcon.font = [UIFont systemFontOfSize:40];
+    [_cardView addSubview:headerIcon];
+    
+    UILabel* headerTitle = [[UILabel alloc] initWithFrame:CGRectMake(0, 65, cardWidth, 30)];
+    headerTitle.text = @"RAVFEN SHIELD";
+    headerTitle.textColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0]; // Gold
+    headerTitle.textAlignment = NSTextAlignmentCenter;
+    headerTitle.font = [UIFont boldSystemFontOfSize:20];
+    [_cardView addSubview:headerTitle];
+    
+    UILabel* headerSubtitle = [[UILabel alloc] initWithFrame:CGRectMake(0, 90, cardWidth, 20)];
+    headerSubtitle.text = @"v8.2 Beta • TW 4.5";
+    headerSubtitle.textColor = [UIColor lightGrayColor];
+    headerSubtitle.textAlignment = NSTextAlignmentCenter;
+    headerSubtitle.font = [UIFont systemFontOfSize:12];
+    [_cardView addSubview:headerSubtitle];
+    
+    // Close Button
+    UIButton* closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(cardWidth - 45, 15, 35, 35);
+    closeBtn.backgroundColor = [UIColor colorWithWhite:0.2 alpha:0.8];
+    closeBtn.layer.cornerRadius = 17.5;
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [closeBtn addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
+    [_cardView addSubview:closeBtn];
 
-    UIButton* close = [UIButton buttonWithType:UIButtonTypeSystem];
-    close.frame = CGRectMake(self.bounds.size.width-50, 30, 40, 40);
-    [close setTitle:@"✕" forState:UIControlStateNormal]; close.tintColor = [UIColor whiteColor];
-    [close addTarget:self action:@selector(hide) forControlEvents:UIControlEventTouchUpInside];
-    [self addSubview:close];
-
-    UIScrollView* tabs = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 160, self.bounds.size.width, 50)];
-    tabs.contentSize = CGSizeMake(self.bounds.size.width, 50);
-    [self addSubview:tabs];
-    NSArray* tabNames = @[@"Aimbot", @"Player", @"Memory"];
+    // Tabs
+    NSArray* tabNames = @[@"Aimbot", @"ESP", @"Memory"];
+    CGFloat tabWidth = cardWidth / 3;
     for (int i=0; i<3; i++) {
-        UIButton* btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        btn.frame = CGRectMake(i*self.bounds.size.width/3, 0, self.bounds.size.width/3, 50);
-        [btn setTitle:tabNames[i] forState:UIControlStateNormal];
-        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        btn.tag = i;
-        [btn addTarget:self action:@selector(tabButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [tabs addSubview:btn];
+        UIButton* tabBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        tabBtn.frame = CGRectMake(i*tabWidth, 120, tabWidth, 40);
+        [tabBtn setTitle:tabNames[i] forState:UIControlStateNormal];
+        [tabBtn setTitleColor:(i==0 ? [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0] : [UIColor grayColor]) forState:UIControlStateNormal];
+        tabBtn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+        tabBtn.tag = i;
+        [tabBtn addTarget:self action:@selector(tabTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [_cardView addSubview:tabBtn];
     }
-    _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 220, self.bounds.size.width, self.bounds.size.height-220)];
-    [self addSubview:_contentView];
+    
+    // Separator
+    UIView* sep = [[UIView alloc] initWithFrame:CGRectMake(15, 160, cardWidth-30, 1)];
+    sep.backgroundColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.4];
+    [_cardView addSubview:sep];
+    
+    // Content Area
+    _contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 170, cardWidth, cardHeight - 180)];
+    [_cardView addSubview:_contentView];
+    
+    [self switchToTab:0];
 }
 
-- (void)tabButtonTapped:(UIButton*)sender { [self switchToTab:(int)sender.tag]; }
+- (void)tabTapped:(UIButton*)sender { [self switchToTab:(int)sender.tag]; }
 
 - (void)switchToTab:(int)index {
-    _currentTab = index;
     for (UIView* v in _contentView.subviews) [v removeFromSuperview];
     if (index == 0) [self buildAimbotPage];
-    else if (index == 1) [self buildPlayerPage];
+    else if (index == 1) [self buildEspPage];
     else [self buildMemoryPage];
 }
 
 - (void)buildAimbotPage {
     UIView* page = [[UIView alloc] initWithFrame:_contentView.bounds];
     [_contentView addSubview:page];
-
-    _enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
+    CGFloat w = page.bounds.size.width;
+    
+    // Enable
+    _enableSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 15, 50, 30)];
     [_enableSwitch addTarget:self action:@selector(toggleAimbot) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_enableSwitch];
-    [page addSubview:[self labelWithText:@"Enable Aimbot\nتفعيل الايم بوت" frame:CGRectMake(20, 20, 200, 30)]];
-
-    _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 80, page.bounds.size.width-40, 30)];
+    [page addSubview:[self labelWithText:@"Enable Aimbot" frame:CGRectMake(20, 15, w-100, 30) size:16]];
+    
+    // Speed
+    _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, 70, w-40, 30)];
     _speedSlider.minimumValue = 50; _speedSlider.maximumValue = 250; _speedSlider.value = 120;
+    _speedSlider.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
     [_speedSlider addTarget:self action:@selector(speedChanged) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_speedSlider];
-    [page addSubview:[self labelWithText:@"Aimbot Speed\nسرعة الايم بوت" frame:CGRectMake(20, 60, 200, 20)]];
-
-    _speedWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, page.bounds.size.width-40, 40)];
-    _speedWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    _speedWarn.numberOfLines = 2; _speedWarn.textColor = [UIColor redColor]; _speedWarn.hidden = YES;
+    [page addSubview:[self labelWithText:@"Speed: 120" frame:CGRectMake(20, 50, w-40, 20) size:12]];
+    
+    _speedWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 100, w-40, 30)];
+    _speedWarn.text = @"⚠️ High speed may cause ban";
+    _speedWarn.textColor = [UIColor redColor]; _speedWarn.font = [UIFont systemFontOfSize:10];
+    _speedWarn.hidden = YES;
     [page addSubview:_speedWarn];
-
-    _targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head\nراس", @"Body\nجسم", @"Random\nعشوائي"]];
-    _targetSegment.frame = CGRectMake(20, 160, page.bounds.size.width-40, 60);
+    
+    // Target
+    _targetSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Body", @"Random"]];
+    _targetSegment.frame = CGRectMake(20, 150, w-40, 35);
+    _targetSegment.tintColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:1.0];
     [_targetSegment addTarget:self action:@selector(targetChanged) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_targetSegment];
-
-    _headWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 230, page.bounds.size.width-40, 40)];
-    _headWarn.text = @"May increase the likelihood of being banned\nقد تزيد نسبة التعرض للحظر";
-    _headWarn.numberOfLines = 2; _headWarn.textColor = [UIColor redColor]; _headWarn.hidden = YES;
+    
+    _headWarn = [[UILabel alloc] initWithFrame:CGRectMake(20, 190, w-40, 30)];
+    _headWarn.text = @"⚠️ Head aim may cause ban";
+    _headWarn.textColor = [UIColor redColor]; _headWarn.font = [UIFont systemFontOfSize:10];
+    _headWarn.hidden = YES;
     [page addSubview:_headWarn];
-
-    [self updateWarnings];
 }
 
-- (void)buildPlayerPage {
+- (void)buildEspPage {
     UIView* page = [[UIView alloc] initWithFrame:_contentView.bounds];
     [_contentView addSubview:page];
-
-    _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 20, 50, 30)];
+    CGFloat w = page.bounds.size.width;
+    
+    _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 15, 50, 30)];
     [_espSwitch addTarget:self action:@selector(toggleESP) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_espSwitch];
-    [page addSubview:[self labelWithText:@"Enable ESP\nتفعيل الـESP" frame:CGRectMake(20, 20, 200, 30)]];
-
-    _boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 70, 50, 30)];
+    [page addSubview:[self labelWithText:@"Enable ESP" frame:CGRectMake(20, 15, w-100, 30) size:16]];
+    
+    _boxSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 65, 50, 30)];
     [_boxSwitch addTarget:self action:@selector(toggleBoxes) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_boxSwitch];
-    [page addSubview:[self labelWithText:@"Boxes\nمربعات" frame:CGRectMake(20, 70, 200, 30)]];
-
-    _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(page.bounds.size.width-60, 120, 50, 30)];
+    [page addSubview:[self labelWithText:@"Boxes" frame:CGRectMake(20, 65, w-100, 30) size:16]];
+    
+    _lineSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(w-70, 115, 50, 30)];
     [_lineSwitch addTarget:self action:@selector(toggleLines) forControlEvents:UIControlEventValueChanged];
     [page addSubview:_lineSwitch];
-    [page addSubview:[self labelWithText:@"Lines\nخطوط" frame:CGRectMake(20, 120, 200, 30)]];
+    [page addSubview:[self labelWithText:@"Lines" frame:CGRectMake(20, 115, w-100, 30) size:16]];
 }
 
 - (void)buildMemoryPage {
@@ -449,16 +517,16 @@ static void GameLoop(void) {
     [_contentView addSubview:soon];
 }
 
-- (UILabel*)labelWithText:(NSString*)text frame:(CGRect)frame {
+- (UILabel*)labelWithText:(NSString*)text frame:(CGRect)frame size:(CGFloat)size {
     UILabel* l = [[UILabel alloc] initWithFrame:frame];
-    l.text = text; l.numberOfLines = 2; l.textColor = [UIColor whiteColor]; l.font = [UIFont systemFontOfSize:14];
+    l.text = text; l.textColor = [UIColor whiteColor]; l.font = [UIFont systemFontOfSize:size];
     return l;
 }
 
+// Actions
 - (void)toggleAimbot { gConfig.aimbotEnabled = _enableSwitch.isOn; }
-- (void)speedChanged { gConfig.aimbotSpeed = _speedSlider.value; [self updateWarnings]; }
-- (void)targetChanged { gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex; [self updateWarnings]; }
-- (void)updateWarnings { _speedWarn.hidden = (_speedSlider.value <= 115); _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0); }
+- (void)speedChanged { gConfig.aimbotSpeed = _speedSlider.value; _speedWarn.hidden = (_speedSlider.value <= 115); }
+- (void)targetChanged { gConfig.aimTarget = (AimTarget)_targetSegment.selectedSegmentIndex; _headWarn.hidden = (_targetSegment.selectedSegmentIndex != 0); }
 - (void)toggleESP { gConfig.espEnabled = _espSwitch.isOn; }
 - (void)toggleBoxes { gConfig.espBoxes = _boxSwitch.isOn; }
 - (void)toggleLines { gConfig.espLines = _lineSwitch.isOn; }
@@ -477,7 +545,7 @@ static void GameLoop(void) {
 @end
 
 // ====================================================================
-// 📱 UI Manager – Floating Button & Menu (Fixed)
+// 📱 UI Manager – Golden Knight Floating Button
 // ====================================================================
 @interface RavUIManager : NSObject
 + (instancetype)shared;
@@ -517,14 +585,22 @@ static void GameLoop(void) {
     }
 
     _floatBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    _floatBtn.frame = CGRectMake(targetWindow.bounds.size.width - 60, 250, 50, 50);
-    _floatBtn.backgroundColor = [UIColor blackColor];
-    _floatBtn.layer.cornerRadius = 25;
-    _floatBtn.layer.borderColor = [UIColor darkGrayColor].CGColor;
-    _floatBtn.layer.borderWidth = 1.5;
-    [_floatBtn setTitle:@"RF" forState:UIControlStateNormal];
-    [_floatBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    _floatBtn.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+    _floatBtn.frame = CGRectMake(targetWindow.bounds.size.width - 65, 250, 55, 55);
+    _floatBtn.backgroundColor = [UIColor colorWithRed:1.0 green:0.84 blue:0.0 alpha:0.9]; // Gold
+    _floatBtn.layer.cornerRadius = 27.5;
+    _floatBtn.layer.borderColor = [UIColor blackColor].CGColor;
+    _floatBtn.layer.borderWidth = 2.0;
+    _floatBtn.layer.shadowColor = [UIColor blackColor].CGColor;
+    _floatBtn.layer.shadowOffset = CGSizeMake(0, 2);
+    _floatBtn.layer.shadowOpacity = 0.8;
+    
+    // Knight icon
+    UILabel* iconLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 55, 55)];
+    iconLabel.text = @"🛡️";
+    iconLabel.textAlignment = NSTextAlignmentCenter;
+    iconLabel.font = [UIFont systemFontOfSize:28];
+    iconLabel.userInteractionEnabled = NO;
+    [_floatBtn addSubview:iconLabel];
 
     UIPanGestureRecognizer* pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     [_floatBtn addGestureRecognizer:pan];
@@ -589,7 +665,7 @@ static void Init(void) {
         UIWindow* targetWindow = [[RavUIManager shared] findKeyWindow] ?: [UIApplication sharedApplication].keyWindow;
         if (targetWindow) {
             [targetWindow addSubview:espView];
-            [targetWindow bringSubviewToFront:espView];
+            [targetWindow sendSubviewToBack:espView]; // Behind UI elements
         }
         [[NSNotificationCenter defaultCenter] addObserverForName:@"RavFenUpdateESP" object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification* note) {
             [espView updateWithPlayers:note.userInfo[@"players"]];
