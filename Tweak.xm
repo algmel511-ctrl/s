@@ -477,11 +477,13 @@ static void DrawArmorFigure(CGContextRef ctx, CGRect rect) {
 
     // Title
     UILabel* title=[[UILabel alloc] initWithFrame:CGRectMake(0,90,cw,22)];
-    title.text=@"⚔  RAVFEN SHADOW  ⚔";
-    title.textColor=[self gold];
     title.textAlignment=NSTextAlignmentCenter;
     title.font=[UIFont fontWithName:@"AvenirNext-Heavy" size:14] ?: [UIFont boldSystemFontOfSize:14];
-    title.letterSpacing=2;
+    // FIX: use attributedText directly instead of category letterSpacing (iOS 7 target)
+    title.attributedText=[[NSAttributedString alloc] initWithString:@"⚔  RAVFEN SHADOW  ⚔"
+        attributes:@{NSKernAttributeName:@(2.0),
+                     NSForegroundColorAttributeName:[self gold],
+                     NSFontAttributeName:title.font}];
     [inner addSubview:title];
 
     UILabel* sub=[[UILabel alloc] initWithFrame:CGRectMake(0,112,cw,16)];
@@ -586,7 +588,10 @@ static void DrawArmorFigure(CGContextRef ctx, CGRect rect) {
     _segTarget.selectedSegmentIndex=1;
     [_segTarget setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor whiteColor]} forState:UIControlStateNormal];
     [_segTarget setTitleTextAttributes:@{NSForegroundColorAttributeName:[UIColor blackColor]} forState:UIControlStateSelected];
-    _segTarget.selectedSegmentTintColor=[self gold];
+    // FIX: selectedSegmentTintColor requires iOS 13+
+    if (@available(iOS 13.0, *)) {
+        _segTarget.selectedSegmentTintColor=[self gold];
+    }
     _segTarget.backgroundColor=[UIColor colorWithWhite:0.12 alpha:1.0];
     [_segTarget addTarget:self action:@selector(togTarget) forControlEvents:UIControlEventValueChanged];
     [r2 addSubview:_segTarget];
