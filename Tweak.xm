@@ -628,10 +628,11 @@ static void GameLoop(void) {
     if (!_menuVisible) return;
     __weak typeof(self) weakSelf = self;
     [UIView animateWithDuration:0.3 animations:^{
-        // FIX: use weakSelf only for removeFromSuperview (method call is safe on nil)
-        weakSelf->_menuView.alpha = 0;
+        // FIX: assign weakSelf to strong before dereferencing ivars
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_menuView.alpha = 0;
     } completion:^(BOOL finished) {
-        // FIX: assign weakSelf to a strong local variable before accessing ivars
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         [strongSelf->_menuView removeFromSuperview];
